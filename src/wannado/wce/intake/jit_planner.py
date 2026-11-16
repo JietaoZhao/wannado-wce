@@ -7,6 +7,11 @@ from typing import Any
 
 from wannado.wce.intake.spec import WCESpec
 from wannado.wce.standards.ecosystem import ECOSYSTEM_REGISTRY, EcosystemTool, probe_local_ecosystem, recommend_ecosystem_tools
+from wannado.wce.standards.jit_recipes import (
+    DEEPMIMO_SCENARIO_CATALOG,
+    JIT_RECIPES,
+    check_tool_platform_readiness,
+)
 
 
 @dataclass
@@ -21,6 +26,8 @@ class JITProvisioningPlan:
     missing_heavy_recipes: list[str]
     warnings: list[str] = field(default_factory=list)
     local_probe: dict[str, Any] = field(default_factory=dict)
+    readiness_reports: list[dict[str, Any]] = field(default_factory=list)
+    deepmimo_catalog: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -32,6 +39,13 @@ class JITProvisioningPlan:
             f"  Analytic Baselines     : {', '.join(self.baseline_blocks) or 'none'}",
             f"  Already Installed      : {', '.join(self.already_installed) or 'wannado_wce_builtin'}",
         ]
+        if self.readiness_reports:
+            lines.append("  OS / GPU / Disk Pre-Check:")
+            for r in self.readiness_reports:
+                lines.append(
+                    f"    * {r['tool_id']}: ready={r['ready_to_pull']}, need~{r['estimated_required_gb']}GB / free={r['free_disk_gb']}GB "
+                    f"(OS={r['os']}, CUDA={r['cuda_available']}, Docker={r['docker_available']})"
+                )
         if self.missing_pip_packages:
             lines.append("  JIT PyPI Pull Commands (ask user before running):")
             lines.extend(f"    $ {cmd}" for cmd in self.missing_pip_packages)
@@ -79,10 +93,26 @@ def build_jit_plan(
     os_name = probe.get("os", "")
     cuda_ok = bool(probe.get("cuda_available", False))
 
+    readiness_reports: list[dict[str, Any]] = []
+    has_deepmimo = False
+
     for t in tools:
         if t.id == "wannado_wce_builtin":
             installed.append(t.id)
             continue
+        if t.id == "deepmimo":
+            has_deepmimo = True
+        if t.id in JIT_RECIPES:
+            dm_scen = "O1_28" if spec.carrier_fc_ghz >= 20.0 else "asu_campus_3p5"
+            rd = check_tool_platform_readiness(t.id, deepmimo_scenario=dm_scen)
+            readiness_reports.append(rd)
+            for w in rd["warnings"]:
+                if w not in warnings:
+                    warnings.append(w)
+            for b in rd["blockers"]:
+                if b not in warnings:
+                    warnings.append(f"BLOCKER: {b}")
+
         if py_inst.get(t.id):
             installed.append(t.id)
             continue
@@ -91,13 +121,10 @@ def build_jit_plan(
         else:
             missing_heavy.append(f"[{t.id}] {t.install_command} | Constraints: {t.os_gpu_constraints}")
 
-        if t.id == "sionna_rt" and (os_name != "Linux" or not cuda_ok):
-            warnings.append(
-                f"Detected OS={os_name}, CUDA={cuda_ok}: Sionna RT GPU OptiX acceleration requires Linux+NVIDIA GPU; "
-                "it will run on CPU (slower) on macOS/Windows."
-            )
         if t.id in ("openairinterface", "pyaerial") and os_name != "Linux":
-            warnings.append(f"{t.name} requires Linux (cannot run natively on {os_name}); use Docker or Tier 0/1 alternatives.")
+            msg = f"{t.name} requires Linux (cannot run natively on {os_name}); use Docker or Tier 0/1 alternatives."
+            if msg not in warnings:
+                warnings.append(msg)
 
     return JITProvisioningPlan(
         builtin_blocks=list(spec.blocks_selected),
@@ -108,4 +135,6 @@ def build_jit_plan(
         missing_heavy_recipes=missing_heavy,
         warnings=warnings,
         local_probe=probe,
+        readiness_reports=readiness_reports,
+        deepmimo_catalog=dict(DEEPMIMO_SCENARIO_CATALOG) if has_deepmimo else {},
     )

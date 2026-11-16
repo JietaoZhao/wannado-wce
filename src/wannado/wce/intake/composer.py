@@ -178,9 +178,9 @@ def _merge_unique(items: list[str]) -> list[str]:
 
 
 def _estimate_array_aperture_m(num_tx: int, fc_ghz: float) -> float:
-    """Compute physical array diagonal/span D [m] at half-wavelength spacing."""
+    """Compute physical array aperture D [m] at half-wavelength spacing (ULA/ELAA up to 256, planar above)."""
     lam = wavelength_m(fc_ghz * 1e9)
-    if num_tx >= 64:
+    if num_tx > 256:
         side = math.sqrt(num_tx) - 1.0
         return round(max(0.05, math.sqrt(2.0) * side * 0.5 * lam), 4)
     return round(max(0.05, max(1, num_tx - 1) * 0.5 * lam), 4)
@@ -216,16 +216,24 @@ def _sync_provenance_and_physics(spec: WCESpec, *, triggered_rules: list[str], a
 
     phys = spec.derived_physics_summary()
     if phys["coherence_time_ms"] < spec.slot_duration_ms:
+        target_mu = spec.numerology_mu
+        while target_mu < 4 and (1.0 / (2 ** target_mu)) > phys["coherence_time_ms"]:
+            target_mu += 1
+        spec.numerology_mu = target_mu
+        spec.slot_duration_ms = 1.0 / (2 ** target_mu)
         alerts.append(
-            f"Coherence alert: channel coherence time T_c={phys['coherence_time_ms']:.3f} ms < slot={spec.slot_duration_ms:.4f} ms; "
-            "raising NR numerology or evaluating `otfs_delay_doppler`."
+            f"Coherence alert: channel coherence time T_c={phys['coherence_time_ms']:.3f} ms < slot; "
+            f"raised NR numerology to mu={spec.numerology_mu} (slot={spec.slot_duration_ms} ms) & enabled `otfs_delay_doppler`."
         )
-        if spec.numerology_mu < 4:
-            spec.numerology_mu = min(4, spec.numerology_mu + 1)
-            spec.slot_duration_ms = 1.0 / (2 ** spec.numerology_mu)
         if "otfs_delay_doppler" not in spec.blocks_selected:
             spec.blocks_selected.append("otfs_delay_doppler")
         triggered_rules.append("auto_coherence_numerology_otfs")
+
+    if "ambient_iot_backscatter" in spec.blocks_selected and "traffic_xr_immersive" in spec.blocks_selected:
+        alerts.append(
+            "Feasibility advisory: Ambient IoT backscatter (uW power budget) conflicts with broadband >=15 Mbps XR streaming (`traffic_xr_immersive`); "
+            "split IoT sensing/control from active broadband offloading."
+        )
 
     # Sync standard_ids from all selected blocks + baselines
     stds = list(spec.standard_ids)
@@ -486,10 +494,10 @@ def compose_wce_spec(
     else:
         traffic_model = "ftp_model_3"
 
-    # External ecosystem intents
+    # External ecosystem intents (including Chinese natural-language physical scene hints)
     eco = ["wannado_wce_builtin"]
-    if any(k in q for k in ("sionna rt", "ray tracing", "ray-tracing", "射线追踪")):
-        eco.extend(["sionna_rt", "sionna"])
+    if any(k in q for k in ("sionna rt", "ray tracing", "ray-tracing", "射线追踪", "真实建筑", "建筑遮挡", "3d建筑", "街区", "城市三维", "site-specific")):
+        eco.extend(["sionna_rt", "sionna", "deepmimo"])
     elif "sionna" in q:
         eco.append("sionna")
     if "deepmimo" in q:
@@ -626,8 +634,9 @@ def update_wce_spec_with_diff(
 
     triggered_rules: list[str] = []
     alerts = _sync_provenance_and_physics(after, triggered_rules=triggered_rules, auto_scale_aperture=("aperture_m" not in patch))
-    if after.aperture_m != before.aperture_m:
-        changed["aperture_m"] = {"before": before.aperture_m, "after": after.aperture_m}
+    for sync_k in ("aperture_m", "numerology_mu", "slot_duration_ms"):
+        if getattr(after, sync_k) != getattr(before, sync_k):
+            changed[sync_k] = {"before": getattr(before, sync_k), "after": getattr(after, sync_k)}
 
     aud = audit_wce_spec(after)
     return SpecDiffReport(

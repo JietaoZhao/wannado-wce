@@ -160,19 +160,30 @@ def format_arsenal_overview() -> str:
     return "\n".join(lines)
 
 
-def build_goal_confirmation_dialog(project_scan: ProjectScan | None = None) -> dict[str, Any]:
+def build_goal_confirmation_dialog(
+    project_scan: ProjectScan | None = None,
+    *,
+    query: str | None = None,
+    composed_spec: WCESpec | None = None,
+) -> dict[str, Any]:
     """Build mandatory 2-step interactive research goal alignment dialog."""
-    conf = project_scan.understanding_confidence if project_scan is not None else "low"
-    summary = (
-        project_scan.project_summary_guess
-        if project_scan is not None and project_scan.project_summary_guess
-        else "No local project directory was scanned yet; let's align on your wireless research requirements."
-    )
-    inferred = (
-        project_scan.inferred_wce_goal
-        if project_scan is not None and project_scan.inferred_wce_goal
-        else "Provision a standards-anchored 3GPP/ITU wireless communication environment."
-    )
+    if query and query.strip():
+        conf = "high" if composed_spec is not None else "medium"
+        blocks_preview = ", ".join(composed_spec.blocks_selected[:4]) if composed_spec is not None else "3GPP/ITU modules"
+        summary = f"Aligned from your prompt (`{query.strip()[:90]}`): mapped to {composed_spec.imt2030_scenario if composed_spec else 'IMT-2030'} with [{blocks_preview}]."
+        inferred = f"Provision {blocks_preview} at fc={composed_spec.carrier_fc_ghz if composed_spec else 3.5} GHz"
+    else:
+        conf = project_scan.understanding_confidence if project_scan is not None else "low"
+        summary = (
+            project_scan.project_summary_guess
+            if project_scan is not None and project_scan.project_summary_guess
+            else "No local project directory was scanned yet; let's align on your wireless research requirements."
+        )
+        inferred = (
+            project_scan.inferred_wce_goal
+            if project_scan is not None and project_scan.inferred_wce_goal
+            else "Provision a standards-anchored 3GPP/ITU wireless communication environment."
+        )
     return {
         "must_explain_understanding_before_asking": True,
         "ai_understanding_summary": summary,
@@ -348,9 +359,19 @@ def recommend_wce_blueprint(
         any(k in q for k in ("semantic", "aircomp", "ckm", "语义", "空中计算")),
         any(k in q for k in ("jam", "covert", "wiretap", "secrecy", "抗干扰", "隐蔽")),
     ])
+    has_uav = any(k in q for k in ("uav", "drone", "无人机"))
+    has_ris = any(k in q for k in ("ris", "irs", "star-ris", "star_ris", "超表面"))
     use_composed = (q not in known_archetypes) and (
         compositional is True
-        or (compositional is None and (distinct_signals >= 2 or bool(comp_plan["extracted_numeric_overrides"])))
+        or (
+            compositional is None
+            and (
+                distinct_signals >= 2
+                or bool(comp_plan["extracted_numeric_overrides"])
+                or (has_uav and not has_ris)
+                or (has_ris and not has_uav)
+            )
+        )
     )
 
     if q in known_archetypes:
@@ -390,9 +411,27 @@ def recommend_wce_blueprint(
         arch = arch_map.get(matched.id, "imt2030_immersive_xr")
 
     spec = composed_spec if use_composed else build_wce_archetype(arch, problem_name=problem_name)
+    needs_rt = any(
+        k in q
+        for k in (
+            "sionna rt",
+            "ray tracing",
+            "ray-tracing",
+            "射线追踪",
+            "真实建筑",
+            "建筑遮挡",
+            "3d建筑",
+            "街区",
+            "城市三维",
+            "site-specific",
+            "building",
+            "canyon",
+            "deepmimo",
+        )
+    )
     jit = build_jit_plan(
         spec,
-        needs_ray_tracing=any(k in q for k in ("ray tracing", "ray-tracing", "deepmimo", "sionna rt", "射线追踪")),
+        needs_ray_tracing=needs_rt,
         needs_full_protocol_stack=any(k in q for k in ("ns-3", "ns3", "tcp", "rlc", "pdcp", "5g-lena", "simu5g", "协议栈")),
         needs_real_sdr_oran=any(k in q for k in ("oai", "openairinterface", "srsran", "usrp", "oran", "o-ran", "ric")),
         needs_rf_iq_ml=any(k in q for k in ("torchsig", "modulation", "amc", "调制识别")),
@@ -447,6 +486,135 @@ def estimate_runtime(
     )
 
 
+_SCENARIO_FORKS: dict[str, list[dict[str, Any]]] = {
+    "uav_ris_relay": [
+        {
+            "fork_id": "uav_role",
+            "question": "无人机在你的研究里承担哪种核心角色？（先确认架构方向，不急着填具体数字）",
+            "options": [
+                "[A] 城郊低空空地信道基准（Al-Hourani 2014 概率 LoS + 3GPP TR 36.777 UMa-AV，推荐默认）",
+                "[B] 无人机中继 / 搭载 RIS·STAR-RIS 覆盖盲区（叠加 ETSI GR RIS 003 守恒约束）",
+                "[C] 低空智联与通感一体化（UAV-ISAC 目标追踪 + CRB 评估）",
+            ],
+        },
+        {
+            "fork_id": "uav_traffic_priority",
+            "question": "链路更关注飞控高可靠（低时延短包）还是高清回传容量？",
+            "options": [
+                "[A] 兼顾标准蜂窝回传与导频真实 CSI 误差（FTP Model 3 + LMMSE 误差，推荐）",
+                "[B] 飞控超可靠短包（叠加 Polyanskiy FBL 有限码长惩罚 `hrllc_fbl_urllc`）",
+            ],
+        },
+    ],
+    "imt2030_isac_monostatic": [
+        {
+            "fork_id": "isac_geometry",
+            "question": "你的通感（ISAC）主要采用哪种收发与干扰模型？",
+            "options": [
+                "[A] 单站（Monostatic）基站自发自收 + 3GPP Rel-19 TR 38.901 背景杂波（推荐默认）",
+                "[B] 双站（Bistatic）或多基站协作感知（测距/测速联合 CRB）",
+            ],
+        },
+        {
+            "fork_id": "isac_csi",
+            "question": "波束赋形与感知反馈采用真实导频估计还是理想上界对比？",
+            "options": [
+                "[A] 真实导频估计 + WMMSE/CRB 基线对比（防止完美 CSI 泄漏，推荐）",
+                "[B] 仅做理论性能上限（ideal_genie_baseline，报告内标注为上界参考）",
+            ],
+        },
+    ],
+    "multicell_ofdma_mac": [
+        {
+            "fork_id": "mac_consumer",
+            "question": "这个多小区信道与队列环境主要接给谁使用？",
+            "options": [
+                "[A] 接入 `wannado-drl` (`./drl_lab/`) 训练 PPO/SAC 资源分配策略（导出现实因果状态 Gym）",
+                "[B] 先直接做标准启发式调度基准对比（Proportional Fair vs Max-SNR vs Round-Robin）",
+            ],
+        },
+    ],
+    "jamming_contested_rf": [
+        {
+            "fork_id": "security_threat",
+            "question": "主要面向哪类物理层安全或抗干扰场景？",
+            "options": [
+                "[A] 恶意 RF 阻塞/对抗样本（与 `wannado-adv` `norm='jsr_db'` 无缝联动）",
+                "[B] 窃听保密容量与隐蔽通信（Wyner Secrecy + Bash sqrt(n) KL 散度约束）",
+            ],
+        },
+    ],
+}
+
+
+def _build_clarifying_forks(
+    arch: str,
+    spec: WCESpec,
+    jit_dict: dict[str, Any],
+    project_scan: ProjectScan | None,
+) -> list[dict[str, Any]]:
+    """Return 1-2 minimal, high-leverage architectural fork questions instead of dumping 10 parameters."""
+    forks: list[dict[str, Any]] = []
+    if project_scan is not None and project_scan.detected_traps:
+        trap_names = ", ".join(dict.fromkeys(t["trap_id"] for t in project_scan.detected_traps[:4]))
+        forks.append(
+            {
+                "fork_id": "legacy_code_isolation",
+                "question": f"扫描到现有代码中存在潜在仿真陷阱（{trap_names}）。希望如何重构？",
+                "options": [
+                    "[A] 保持你原有脚本 100% 不动，在独立 `./wce_lab/` 内按 3GPP/ITU 标准重搭环境并出对照报告（推荐）",
+                    "[B] 生成 `./wce_lab/` 的同时，把原有脚本的通道函数逐个替换为 `./wce_lab/interface.py`",
+                ],
+            }
+        )
+
+    readiness = jit_dict.get("readiness_reports") or []
+    if readiness:
+        rd_desc = "; ".join(f"{r['tool_id']}(需~{r['estimated_required_gb']}GB/余{r['free_disk_gb']}GB)" for r in readiness[:2])
+        forks.append(
+            {
+                "fork_id": "jit_external_pull_confirm",
+                "question": f"检测到真实街区/外部物理引擎需求 [{rd_desc}]。当前硬件环境与适配方案已检查完毕，是否确认安装？",
+                "options": [
+                    "[A] 我已确认硬件/磁盘限制，同意按需安装外部库并自动跑通 `--self-test` 归一化胶水（推荐）",
+                    "[B] 暂不下载大体积外部库，先用 `./wce_lab/adapters/` 生成干跑契约 + Tier 0 统计模型起步",
+                ],
+            }
+        )
+
+    fork_keys: list[str] = [arch]
+    if "uav_air_to_ground" in spec.blocks_selected:
+        fork_keys.append("uav_ris_relay")
+    if "isac_jsac_channel" in spec.blocks_selected:
+        fork_keys.append("imt2030_isac_monostatic")
+    if "multicell_interference_mac" in spec.blocks_selected:
+        fork_keys.append("multicell_ofdma_mac")
+    if "pls_covert_antijamming" in spec.blocks_selected:
+        fork_keys.append("jamming_contested_rf")
+
+    for fk in fork_keys:
+        for item in _SCENARIO_FORKS.get(fk, []):
+            if len(forks) >= 2:
+                break
+            if all(existing["fork_id"] != item["fork_id"] for existing in forks):
+                forks.append(item)
+        if len(forks) >= 2:
+            break
+
+    if not forks:
+        forks.append(
+            {
+                "fork_id": "scene_and_rigor",
+                "question": f"已按 `{spec.imt2030_scenario}` + `{', '.join(spec.blocks_selected[:2])}` 拟好默认标准环境。是否需要追加近场/RIS/DRL 等组件？",
+                "options": [
+                    "[A] 按当前 3GPP/ITU 默认基准直接生成 `./wce_lab/` 并跑多随机种子验证（推荐）",
+                    "[B] 我补充一句具体特征（如加 STAR-RIS / 换 28 GHz / 接强化学习），重新 4 槽位组合",
+                ],
+            }
+        )
+    return forks[:2]
+
+
 def build_interactive_brief(
     *,
     project_scan: ProjectScan | None = None,
@@ -454,28 +622,30 @@ def build_interactive_brief(
     num_seeds: int = 3,
     output_dir: str = "./wce_lab/outputs",
 ) -> dict[str, Any]:
-    """Assemble full Stage 0-2 AI Co-Pilot brief (clues, arsenal, 2-step dialog, JIT plan, zero-jargon knobs, ETA)."""
+    """Assemble full Stage 0-2 AI Co-Pilot brief (clues, arsenal, 2-step dialog, 1-2 clarifying forks, JIT plan, ETA)."""
     ars = build_arsenal_showcase()
-    dlg = build_goal_confirmation_dialog(project_scan)
     target_hint = query or (project_scan.likely_archetype if project_scan is not None else "imt2030_immersive_xr")
     bp = recommend_wce_blueprint(target_hint)
     spec_obj: WCESpec = bp["spec_obj"]
-    jit_obj = bp["jit_obj"]
+    dlg = build_goal_confirmation_dialog(project_scan, query=query, composed_spec=spec_obj)
     param_guide = explain_parameters(wce_spec=spec_obj, output_dir=output_dir)
     eta = estimate_runtime(spec_obj, num_seeds=num_seeds)
+    forks = _build_clarifying_forks(bp["archetype"], spec_obj, bp["jit_plan"], project_scan)
 
     return {
         "interaction_guidelines": {
             "language_rule": "Reply naturally in the user's conversation language (e.g., natural Chinese when chatting in Chinese).",
-            "traverse_first_rule": "Share observed project clues FIRST before asking; never cold-ask without summarizing what was scanned.",
+            "traverse_first_rule": "Share observed project clues and `detected_traps` FIRST before asking; never cold-ask without summarizing what was scanned.",
             "arsenal_showcase_rule": f"Showcase wannado-wce v{ars['version']} ({ars['total_blocks']} blocks, {ars['total_standards']} standards, {ars['total_ecosystem_tools']} JIT tools).",
+            "minimal_fork_rule": "Ask ONLY `clarifying_forks` (1-2 targeted architectural forks) on vague prompts; avoid dumping 10 parameter walls upfront.",
             "goal_dialog_rule": "Pop `goal_confirmation_dialog` BEFORE finalizing ./wce_lab/wce_spec.json or pulling external packages.",
-            "jit_philosophy_rule": "Never auto-install large external simulators without confirming disk/OS/GPU requirements in `jit_plan`.",
-            "zero_jargon_rule": "Explain every RF parameter with `plain_analogy`, `equivalent_to`, and `if_higher_vs_lower` before running.",
+            "jit_philosophy_rule": "Never auto-install large external simulators without confirming `readiness_reports` (OS/GPU/free disk GB) in `jit_plan`.",
+            "zero_jargon_rule": "Explain selected RF parameters with `plain_analogy`, `equivalent_to`, and `if_higher_vs_lower` before running.",
         },
         "project_scan": project_scan.to_dict() if project_scan is not None else None,
         "arsenal_showcase": ars,
         "goal_confirmation_dialog": dlg,
+        "clarifying_forks": forks,
         "recommended_archetype": bp["archetype"],
         "composition_plan": bp.get("composition_plan"),
         "wce_spec": bp["wce_spec"],

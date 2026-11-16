@@ -155,7 +155,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"\n[Recommended Blueprint: archetype='{brief['recommended_archetype']}']")
             print(f"  Blocks: {', '.join(brief['wce_spec']['blocks_selected'])}")
             print(f"  Baselines: {', '.join(brief['wce_spec']['baseline_blocks'])}")
-            print(f"  ETA: ~{brief['runtime_estimate']['total_seconds']:.2f}s ({brief['runtime_estimate']['advisory']})")
+            if brief.get("clarifying_forks"):
+                print("\n[Minimal Clarifying Forks (1-2 targeted questions)]:")
+                for idx, fk in enumerate(brief["clarifying_forks"], start=1):
+                    print(f"  Q{idx}. {fk['question']}")
+                    for opt in fk["options"]:
+                        print(f"      - {opt}")
+            rd = (brief.get("jit_plan") or {}).get("readiness_reports") or []
+            if rd:
+                print("\n[External JIT Readiness & Disk Check]:")
+                for r in rd:
+                    print(
+                        f"  * {r['tool_id']}: ready={r['ready_to_pull']}, need~{r['estimated_required_gb']}GB, "
+                        f"free={r['free_disk_gb']}GB, OS={r['os']}, CUDA={r['cuda_available']} | cmd: {'; '.join(r['install_commands'])}"
+                    )
+                    for w in r.get("warnings", []):
+                        print(f"      ! Advisory: {w}")
+                    for b in r.get("blockers", []):
+                        print(f"      X Blocker : {b}")
+            dm_cat = (brief.get("jit_plan") or {}).get("deepmimo_catalog") or {}
+            if dm_cat:
+                print("  * DeepMIMO Scenario Sizes: " + ", ".join(f"{k}(~{v['est_disk_gb']}GB)" for k, v in dm_cat.items()))
+            print(f"\n  ETA: ~{brief['runtime_estimate']['total_seconds']:.2f}s ({brief['runtime_estimate']['advisory']})")
         return 0
 
     if args.command == "arsenal":

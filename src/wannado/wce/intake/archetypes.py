@@ -417,6 +417,9 @@ def audit_wce_spec(spec: WCESpec) -> SpecAuditReport:
     if spec.csi_assumption == "ideal_genie_baseline":
         warnings.append("csi_assumption='ideal_genie_baseline' should only be reported as an analytical upper bound alongside realistic noisy CSI.")
 
+    if "ambient_iot_backscatter" in spec.blocks_selected and "traffic_xr_immersive" in spec.blocks_selected:
+        warnings.append("Feasibility conflict: Ambient IoT uW backscatter cannot directly serve >=15 Mbps XR streaming (`traffic_xr_immersive`); separate IoT control from broadband links.")
+
     if not spec.baseline_blocks:
         recs.append("Include at least one classic analytical baseline (e.g., `awgn_link`, `wmmse_precoder`, `proportional_fair`).")
 

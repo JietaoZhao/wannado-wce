@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import os
+import re
 import warnings
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -134,6 +135,7 @@ class ProjectScan:
     existing_wce_lab: bool = False
     likely_archetype: str = "imt2030_immersive_xr"
     detected_symbols: list[str] = field(default_factory=list)
+    detected_traps: list[dict[str, str]] = field(default_factory=list)
     readme_title: str = ""
     readme_excerpt: str = ""
     understanding_confidence: str = "low"
@@ -155,7 +157,61 @@ class ProjectScan:
         ]
         if self.evidence_clues:
             lines.append(f"  Observed clues       : {'; '.join(self.evidence_clues[:6])}")
+        if self.detected_traps:
+            lines.append(f"  Legacy Code Traps    : {len(self.detected_traps)} warning(s) found (non-intrusive ./wce_lab/ fixes them without editing user code):")
+            for t in self.detected_traps[:6]:
+                lines.append(f"    ! [{t['trap_id']}] {t['file']}: {t['message']}")
         return "\n".join(lines)
+
+
+def _scan_file_for_wireless_traps(rel_path: str, text: str) -> list[dict[str, str]]:
+    """Detect common wireless simulation bugs in legacy scripts (static non-invasive audit)."""
+    traps: list[dict[str, str]] = []
+    low = text.lower()
+
+    # 1. Unnormalized real/complex random channel draws
+    has_raw_rand = bool(re.search(r"\b(?:h|h_mat|channel|chan)\w*\s*=\s*(?:torch\.randn|np\.random\.randn|np\.random\.normal)", low))
+    has_norm_hint = any(tok in low for tok in ("sqrt(2", "/ math.sqrt(2", "complex_normal", "normalize_channel_power", "1j"))
+    if has_raw_rand and not has_norm_hint:
+        traps.append({
+            "trap_id": "unnormalized_channel_power",
+            "file": rel_path,
+            "message": "Detected raw randn/normal channel tensor without complex E[|h|^2]=1 (1/sqrt(2) real+imag) scaling.",
+            "fix_hint": "Use normalized `complex_normal(...)` or built-in TR 38.901 / Saleh-Valenzuela blocks inside ./wce_lab/.",
+        })
+
+    # 2. Genie / noiseless / future CSI exposure
+    if any(tok in low for tok in ("perfect_csi", "ideal_csi", "oracle_csi", "h_true", "future_csi")) or bool(re.search(r"\bh(?:_all|_traj)?\[(?:t|slot)\s*\+\s*1\]", low)):
+        traps.append({
+            "trap_id": "genie_or_perfect_csi",
+            "file": rel_path,
+            "message": "Detected ideal/perfect/future CSI variable usage (`perfect_csi` / `h_true` / `[t+1]`) without pilot noise.",
+            "fix_hint": "Benchmark against causal noisy LMMSE CSI (`ls_lmmse_csi` / `csi_assumption='realistic_estimated'`).",
+        })
+
+    # 3. Missing seed reproducibility
+    if any(tok in low for tok in ("torch.randn", "torch.rand", "np.random.")) and not any(
+        s in low for s in ("manual_seed", "default_rng", "np.random.seed", "set_global_seed", "torch.generator")
+    ):
+        traps.append({
+            "trap_id": "unseeded_randomness",
+            "file": rel_path,
+            "message": "Random channel/noise draws appear unseeded (missing manual_seed / default_rng), risking unreproducible single-run bias.",
+            "fix_hint": "Provision >=3 fixed random seeds via ./wce_lab/run_provision.py --seeds 0 1 2.",
+        })
+
+    # 4. Passive RIS phase matrix without unit-modulus phase projection
+    if any(tok in low for tok in ("ris", "irs")) and re.search(r"\b(?:phi|theta|ris_phase)\w*\s*=\s*(?:torch\.randn|np\.random\.randn)", low) and not any(
+        tok in low for tok in ("exp(1j", "torch.polar", "torch.angle", "unit", "abs(")
+    ):
+        traps.append({
+            "trap_id": "passive_ris_unchecked_modulus",
+            "file": rel_path,
+            "message": "RIS reflection matrix initialized via raw Gaussian draws without unit-modulus |phi_m| <= 1 constraint.",
+            "fix_hint": "Use `passive_ris_cascade` or `star_ris` (enforces passive energy conservation).",
+        })
+
+    return traps
 
 
 def scan_project(project_dir: str | Path = ".", max_files: int = 200) -> ProjectScan:
@@ -164,7 +220,10 @@ def scan_project(project_dir: str | Path = ".", max_files: int = 200) -> Project
     py_files: list[Path] = []
     total_py = 0
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if d not in _IGNORE_DIRS and not d.endswith(".egg-info"))
+        dirnames[:] = sorted(
+            d for d in dirnames
+            if d not in _IGNORE_DIRS and d not in ("wce_lab", "drl_lab", "adv_eval") and not d.endswith(".egg-info")
+        )
         for fname in sorted(filenames):
             if fname.endswith(".py"):
                 total_py += 1
@@ -186,6 +245,7 @@ def scan_project(project_dir: str | Path = ".", max_files: int = 200) -> Project
     }
     frameworks: set[str] = set()
     symbols: list[str] = []
+    detected_traps: list[dict[str, str]] = []
     doc_snippets: list[str] = []
     scores: dict[str, int] = {k: 0 for k in _ARCHETYPE_SIGNALS}
     matched_kws: dict[str, list[str]] = {k: [] for k in _ARCHETYPE_SIGNALS}
@@ -197,6 +257,8 @@ def scan_project(project_dir: str | Path = ".", max_files: int = 200) -> Project
             text = fpath.read_text(encoding="utf-8", errors="ignore")[:131072]
         except OSError:
             continue
+        if not is_lab and not rel.startswith("tests/"):
+            detected_traps.extend(_scan_file_for_wireless_traps(rel, text))
         low_txt = text.lower()
         try:
             with warnings.catch_warnings():
@@ -293,6 +355,7 @@ def scan_project(project_dir: str | Path = ".", max_files: int = 200) -> Project
         existing_wce_lab=existing_wce,
         likely_archetype=best_arch,
         detected_symbols=symbols,
+        detected_traps=detected_traps[:12],
         readme_title=readme_title,
         readme_excerpt=readme_excerpt,
         understanding_confidence=conf,

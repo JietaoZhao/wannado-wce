@@ -163,6 +163,43 @@ class TestCompositionalAndJITAdapters(unittest.TestCase):
             rc_j = cli_main(["jit-recipe", "sionna_rt", "--write-dir", str(Path(tmpdir) / "adapters"), "--verify", "--json"])
             self.assertEqual(rc_j, 0)
 
+    def test_stress_regressions_uav_legacy_traps_raytracing_and_140ghz_nearfield(self) -> None:
+        from wannado.wce import build_interactive_brief, scan_project
+
+        # 1. Pure UAV query should NOT inject unrequested RIS blocks, while returning UAV clarifying forks & aligned dialog
+        uav_bp = recommend_wce_blueprint("我要做 6G 低空无人机通信，用什么信道合适？")
+        self.assertIn("uav_air_to_ground", uav_bp["wce_spec"]["blocks_selected"])
+        self.assertNotIn("passive_ris_cascade", uav_bp["wce_spec"]["blocks_selected"])
+        uav_brief = build_interactive_brief(query="我要做 6G 低空无人机通信，用什么信道合适？")
+        self.assertIn("uav_role", [f["fork_id"] for f in uav_brief["clarifying_forks"]])
+        self.assertIn("uav_air_to_ground", uav_brief["goal_confirmation_dialog"]["ai_understanding_summary"])
+
+        # 2. Legacy messy script trap detection
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bad = Path(tmpdir) / "legacy_beam.py"
+            bad.write_text("import torch\nH = torch.randn(32, 8)\nphi = torch.randn(64)\nperfect_csi = H\n", encoding="utf-8")
+            sc = scan_project(tmpdir)
+            trap_ids = {t["trap_id"] for t in sc.detected_traps}
+            self.assertIn("unnormalized_channel_power", trap_ids)
+            self.assertIn("genie_or_perfect_csi", trap_ids)
+            self.assertIn("unseeded_randomness", trap_ids)
+
+        # 3. Real building 28 GHz query triggers Sionna RT & DeepMIMO + readiness + DeepMIMO catalog
+        rt_brief = build_interactive_brief(query="普通统计信道不够，我要建真实建筑遮挡的 28 GHz 街区无线仿真环境")
+        tool_ids = {t["id"] for t in rt_brief["jit_plan"]["external_tools"]}
+        self.assertIn("sionna_rt", tool_ids)
+        self.assertIn("deepmimo", tool_ids)
+        self.assertTrue(len(rt_brief["jit_plan"]["readiness_reports"]) >= 2)
+        self.assertTrue(bool(rt_brief["jit_plan"]["deepmimo_catalog"]))
+
+        # 4. 140 GHz + 256 antennas + 5 m MUST trigger both band ceiling alert AND near-field transition AND direct mu=4
+        base, _ = compose_wce_spec("3.5 GHz urban MIMO")
+        d_thz = update_wce_spec_with_diff(base, "把频段改成 140 GHz，基站阵列换成 256 个天线，距离 5 m")
+        self.assertTrue(any("Near-field transition" in a for a in d_thz.boundary_alerts))
+        self.assertTrue(any("100 GHz" in a or "140.0 GHz" in a for a in d_thz.boundary_alerts))
+        self.assertEqual(d_thz.updated_spec.numerology_mu, 4)
+        self.assertIn("numerology_mu", d_thz.changed_fields)
+
 
 if __name__ == "__main__":
     unittest.main()
