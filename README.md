@@ -1,4 +1,4 @@
-# WannaDo-WCE (`wannado-wce`)
+# WannaDo Series: Automatic AI focus wireless communication environment setup (`wannado-wce`)
 
 *Wanna do a wireless communication simulation?*
 
