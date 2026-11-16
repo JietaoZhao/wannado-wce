@@ -6,11 +6,11 @@
 
 **Standards-Anchored, Just-in-Time (JIT) Wireless Communication Environment Quick Provisioning for 5G-Advanced, 6G / IMT-2030, ISAC, RIS, Near-Field XL-MIMO, NTN, UAV, V2X, and AI-Native Networks**
 
-[![Version](https://img.shields.io/badge/version-1.1.0-2563eb)](file:///Users/howen/Desktop/WannaDo/wannado-wce/pyproject.toml)
-[![Python](https://img.shields.io/badge/python-3.10%2B-0f766e)](file:///Users/howen/Desktop/WannaDo/wannado-wce/pyproject.toml)
+[![Version](https://img.shields.io/badge/version-1.1.0-2563eb)](https://github.com/JietaoZhao/wannado-wce/blob/main/pyproject.toml)
+[![Python](https://img.shields.io/badge/python-3.10%2B-0f766e)](https://github.com/JietaoZhao/wannado-wce/blob/main/pyproject.toml)
 [![Standards](https://img.shields.io/badge/standards-21%20ITU%2F3GPP%2FETSI%2FIEEE-7c3aed)](#1-authoritative-standards--scenario-matrix-21-standards--6-imt-2030-scenarios)
 [![Blocks](https://img.shields.io/badge/executable%20blocks-33%20single--file-059669)](#2-the-33-block-single-file-arsenal-classic--2025-frontier)
-[![License: MIT](https://img.shields.io/badge/license-MIT-475569)](file:///Users/howen/Desktop/WannaDo/wannado-wce/LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-475569)](https://github.com/JietaoZhao/wannado-wce/blob/main/LICENSE)
 
 ---
 
@@ -27,7 +27,8 @@
 ## Quick Start
 
 ```bash
-pip install -e .
+pip install wannado-wce
+# Or from source checkout: pip install -e ".[dev]" --no-build-isolation
 wannado-wce init-agent --dir /path/to/your/project --ide all
 wannado-wce inspect /path/to/your/project --query "28 GHz ISAC monostatic radar and RIS MIMO"
 ```
@@ -95,11 +96,11 @@ Run `wannado-wce ecosystem --probe` to inspect local OS, GPU, CUDA/MPS, installe
 
 ## 4. Empirical Validation & Reproducible Benchmarks
 
-Running [`benchmarks/bench_3gpp_and_imt2030.py`](file:///Users/howen/Desktop/WannaDo/wannado-wce/benchmarks/bench_3gpp_and_imt2030.py) and [`benchmarks/bench_ris_isac_nearfield_and_audit.py`](file:///Users/howen/Desktop/WannaDo/wannado-wce/benchmarks/bench_ris_isac_nearfield_and_audit.py) produces standard-aligned validation curves:
+Running [`benchmarks/bench_3gpp_and_imt2030.py`](https://github.com/JietaoZhao/wannado-wce/blob/main/benchmarks/bench_3gpp_and_imt2030.py) and [`benchmarks/bench_ris_isac_nearfield_and_audit.py`](https://github.com/JietaoZhao/wannado-wce/blob/main/benchmarks/bench_ris_isac_nearfield_and_audit.py) produces standard-aligned validation curves:
 
-![3GPP TR 38.901, NTN TR 38.811 & IMT-2030 FBL Validation](benchmarks/assets/3gpp_imt2030_channels.png)
+![3GPP TR 38.901, NTN TR 38.811 & IMT-2030 FBL Validation](https://raw.githubusercontent.com/JietaoZhao/wannado-wce/main/benchmarks/assets/3gpp_imt2030_channels.png)
 
-![Near-Field XL-MIMO, WMMSE/ZF/MRT & Pilot CSI Baselines](benchmarks/assets/ris_nearfield_baselines.png)
+![Near-Field XL-MIMO, WMMSE/ZF/MRT & Pilot CSI Baselines](https://raw.githubusercontent.com/JietaoZhao/wannado-wce/main/benchmarks/assets/ris_nearfield_baselines.png)
 
 - **TR 38.901 & TR 38.811 Fidelity**: Verified dual-slope pathloss transitions across `UMa`/`UMi`/`RMa`/`InF` and LEO `600 km` elevation SNR monotonicity (`10°` → `90°`: `-6.92 dB` → `+3.77 dB` in S-band).
 - **Polyanskiy FBL URLLC Penalty**: At `SNR = 10 dB`, finite blocklength `n = 64` achieves `2.69 bps/Hz` (`BLER = 1e-5`) vs the infinite-blocklength Shannon ceiling (`3.46 bps/Hz`), exposing short-packet capacity overestimation.
@@ -135,3 +136,14 @@ wannado-wce scaffold --dir ./wce_lab         # Generate isolated ./wce_lab/ + Co
 wannado-wce cite isac_jsac_channel --format bibtex
 wannado-wce init-agent --dir . --ide all     # Install AGENTS.md / CLAUDE.md / .cursor / .agent skills
 ```
+
+## Feedback & Suggestions
+
+Found a bug, missing 3GPP/ITU standard clause, new 6G channel or simulator adapter request, or ideas to improve the AI IDE Co-Pilot experience? Send feedback or suggestions without leaving GitHub:
+
+- **Open Feedback Portal**: [https://jietaozhao.github.io/wannado-wce/](https://jietaozhao.github.io/wannado-wce/)
+- Or scan the QR code below from your phone:
+
+<a href="https://jietaozhao.github.io/wannado-wce/">
+  <img src="https://raw.githubusercontent.com/JietaoZhao/wannado-wce/main/docs/assets/feedback_qr.png" width="170" alt="QR Code for wannado-wce Feedback Portal" />
+</a>

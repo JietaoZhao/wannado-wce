@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Feedback — wannado-wce (WannaDo Series)</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-hover: #0ea5e9;
+      --success-bg: rgba(16, 185, 129, 0.14);
+      --success-text: #34d399;
+      --error-bg: rgba(239, 68, 68, 0.14);
+      --error-text: #f87171;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f8fafc;
+        --card: #ffffff;
+        --border: #e2e8f0;
+        --text: #0f172a;
+        --muted: #64748b;
+        --accent: #0284c7;
+        --accent-hover: #0369a1;
+        --success-bg: rgba(16, 185, 129, 0.12);
+        --success-text: #059669;
+        --error-bg: rgba(239, 68, 68, 0.12);
+        --error-text: #dc2626;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+    }
+    .card {
+      width: 100%;
+      max-width: 540px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px 24px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
+    }
+    .badge {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 22px;
+      line-height: 1.3;
+    }
+    .subtitle {
+      margin: 0 0 22px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    input[type="text"],
+    select,
+    textarea {
+      width: 100%;
+      padding: 10px 12px;
+      margin-bottom: 16px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      font-family: inherit;
+    }
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: 2px solid var(--accent);
+      border-color: transparent;
+    }
+    .captcha-wrap {
+      margin-bottom: 16px;
+    }
+    button {
+      width: 100%;
+      padding: 12px 16px;
+      border: none;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #ffffff;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    button:hover:not(:disabled) { background: var(--accent-hover); }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .status {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 14px;
+      line-height: 1.45;
+      display: none;
+    }
+    .status.success { display: block; background: var(--success-bg); color: var(--success-text); }
+    .status.error { display: block; background: var(--error-bg); color: var(--error-text); }
+    .footer {
+      margin-top: 18px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .footer a { color: var(--accent); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <span class="badge">WANNADO SERIES · WANNADO-WCE</span>
+    <h1>Feedback &amp; Suggestions / 建议与留言</h1>
+    <p class="subtitle">
+      Share bug reports, new 3GPP/ITU/6G channel &amp; scenario requests, JIT simulator adapters (Sionna / DeepMIMO / ns-3 / OAI), or Co-Pilot UX suggestions — no login required.<br />
+      欢迎反馈 Bug、想要新增的 3GPP/ITU/6G 信道或标准、外部仿真器（Sionna / DeepMIMO / ns-3 / OAI）JIT 适配需求，或 AI IDE 对话交互建议（无需登录，支持匿名）。
+    </p>
+
+    <form id="feedback-form" action="https://api.web3forms.com/submit" method="POST">
+      <input type="hidden" name="access_key" id="access-key" value="07fa1214-89c7-41ba-ad81-864dbd0d8363" />
+      <input type="hidden" name="subject" value="[wannado-wce] New User Feedback" />
+      <input type="hidden" name="from_name" value="wannado-wce Feedback Portal" />
+      <!-- Anti-spam honeypot -->
+      <input type="checkbox" name="botcheck" tabindex="-1" autocomplete="off" style="display: none;" />
+
+      <label for="category">Topic / 反馈类型</label>
+      <select id="category" name="category">
+        <option value="WCE Co-Pilot / 4-Slot Assembler">AI IDE Co-Pilot / 4 槽位组装与交互体验</option>
+        <option value="3GPP / ITU / ETSI Standards & Physics">3GPP / ITU / ETSI 标准公式与参数溯源 (Table I)</option>
+        <option value="New 6G Channel / Algorithm Request">New 6G Block or Paper Request / 新增信道、超表面或通信模型</option>
+        <option value="JIT External Adapter (Sionna / DeepMIMO / ns-3 / OAI)">JIT Simulator Adapter / 外部仿真库拉取与张量适配</option>
+        <option value="Bug Report / Rigor Auditor">Bug Report or Rigor Auditor / 问题报错与物理审计规则</option>
+        <option value="General">General Feedback / 其他留言</option>
+      </select>
+
+      <label for="message">Message / 具体建议或问题描述 *</label>
+      <textarea
+        id="message"
+        name="message"
+        required
+        placeholder="Tell us what worked well, what felt awkward, or which 3GPP/ITU standard, 6G scenario, or simulator adapter you want supported next..."
+      ></textarea>
+
+      <label for="contact">Optional Reply Handle / 选填联系方式 (GitHub @handle or email if you'd like a reply)</label>
+      <input
+        type="text"
+        id="contact"
+        name="contact"
+        placeholder="Optional — leave blank to stay completely anonymous"
+      />
+
+      <div class="captcha-wrap">
+        <div class="h-captcha" data-captcha="true"></div>
+      </div>
+
+      <button type="submit" id="submit-btn">Send Feedback / 发送留言</button>
+      <div id="form-status" class="status" role="status" aria-live="polite"></div>
+    </form>
+
+    <div class="footer">
+      <a href="https://github.com/JietaoZhao/wannado-wce" target="_blank" rel="noopener">GitHub: JietaoZhao/wannado-wce</a>
+      · Powered by Web3Forms
+    </div>
+  </main>
+
+  <script src="https://web3forms.com/client/script.js" async defer></script>
+  <script>
+    const form = document.getElementById("feedback-form");
+    const statusBox = document.getElementById("form-status");
+    const submitBtn = document.getElementById("submit-btn");
+    const accessKeyEl = document.getElementById("access-key");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      statusBox.className = "status";
+      statusBox.textContent = "";
+
+      if (!accessKeyEl.value || accessKeyEl.value === "YOUR_WEB3FORMS_ACCESS_KEY") {
+        statusBox.className = "status error";
+        statusBox.textContent = "Portal setup incomplete: maintainer needs to set Web3Forms access_key in docs/index.html.";
+        return;
+      }
+
+      const hCaptchaVal = form.querySelector("textarea[name=h-captcha-response]")?.value;
+      if (!hCaptchaVal) {
+        statusBox.className = "status error";
+        statusBox.textContent = "Please complete the hCaptcha check first / 请先完成人机验证后再提交。";
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Sending... / 发送中...";
+      try {
+        const res = await fetch("https://api.web3forms.com/submit", {
+          method: "POST",
+          body: new FormData(form),
+        });
+        const data = await res.json();
+        if (data.success) {
+          statusBox.className = "status success";
+          statusBox.textContent = "Thank you! Your feedback has been delivered privately to the maintainer. / 感谢反馈！留言已安全送达作者。";
+          form.reset();
+        } else {
+          statusBox.className = "status error";
+          statusBox.textContent = data.message || "Submission failed. Please try again.";
+        }
+      } catch (err) {
+        statusBox.className = "status error";
+        statusBox.textContent = "Network error while submitting feedback. Please try again later.";
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Send Feedback / 发送留言";
+      }
+    });
+  </script>
+</body>
+</html>

@@ -17,8 +17,9 @@ from wannado.wce.standards.ecosystem import ECOSYSTEM_REGISTRY
 
 
 WCE_SRC = Path(__file__).resolve().parents[1] / "src"
-DRL_SRC = Path("/Users/howen/Desktop/WannaDo/wannado-drl/src")
-ADV_SRC = Path("/Users/howen/Desktop/WannaDo/wannado-adv/src")
+WANNA_ROOT = Path(__file__).resolve().parents[2]
+DRL_SRC = WANNA_ROOT / "wannado-drl" / "src"
+ADV_SRC = WANNA_ROOT / "wannado-adv" / "src"
 
 
 class TestPackagingAndCoexistence(unittest.TestCase):
