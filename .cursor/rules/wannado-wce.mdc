@@ -1,0 +1,14 @@
+---
+description: Standards-anchored, Just-in-Time wireless communication environment provisioning (ITU IMT-2030, 3GPP, RIS, ISAC, NTN, UAV) with wannado-wce.
+alwaysApply: false
+---
+
+# wannado-wce Cursor Co-Pilot Rule
+
+For complete 5-stage workflow instructions, read `.agents/skills/wannado-wce/SKILL.md` (or `AGENTS.md`) and run `wannado-wce inspect .` first.
+
+0. **Scope & Coexistence (`wannado-drl` / `wannado-adv`)**: Activate `wannado-wce` ONLY for wireless environment modeling, 3GPP/ITU parameter provenance, JIT simulator selection, and physical consistency auditing (`./wce_lab/`). Hand off RL training to `./drl_lab/` and RF robustness testing to `./adv_eval/`.
+1. **Inspect First -> Share Clues -> Showcase Arsenal -> Pop Goal Dialog**: Run `wannado-wce inspect .`; share clues first, show `wannado-wce` arsenal + standards + JIT ecosystem, and pop the 2-step Goal Confirmation Dialog before writing `./wce_lab/wce_spec.json`.
+2. **External `./wce_lab/` & JIT Discipline**: Scaffold via `wannado-wce scaffold --dir ./wce_lab`, customize single blocks via `wannado-wce eject <block_id>`, and confirm OS/GPU/disk trade-offs before JIT pulling external packages (`sionna`, `deepmimo`, `quadriga-lib`, `ns-3`, `OAI`, etc.).
+3. **Zero-Jargon RF Analogies + Storage + Preflight + ETA**: Run `preflight_wce()`; explain all RF parameters with `explain_parameters()`, confirm `./wce_lab/outputs/` and `estimate_runtime()` ETA before multi-seed runs.
+4. **Traceable `.md` Table I, Rigor Audit & Verbatim Citations**: Run `evaluate_wce_suite(..., run_audit=True)` + `report.save()`, highlight `environment_provenance.md` (including System Parameter Table I & charts), `paper_params_table.tex`, and zero-hallucination `references.bib`.

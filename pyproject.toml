@@ -1,0 +1,95 @@
+[build-system]
+requires = ["setuptools>=77.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wannado-wce"
+version = "1.0.0"
+description = "WannaDo Series: Standards-anchored, Just-in-Time wireless communication environment quick provisioning across ITU IMT-2030 (6G), 3GPP NR/NTN/V2X/ISAC, RIS/XL-MIMO, traffic/MAC queues, and open-source wireless ecosystems."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "JettZ" },
+]
+keywords = [
+    "wireless-communications",
+    "6g",
+    "imt-2030",
+    "3gpp",
+    "channel-modeling",
+    "isac",
+    "ris",
+    "ntn",
+    "xl-mimo",
+    "ai-native",
+    "ai-ide",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Telecommunications Industry",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy>=1.24",
+    "torch>=2.0",
+    "scipy>=1.11",
+    "pyyaml>=6.0",
+    "matplotlib>=3.7",
+]
+
+[project.urls]
+Homepage = "https://github.com/JietaoZhao/wannado-wce"
+Repository = "https://github.com/JietaoZhao/wannado-wce"
+Issues = "https://github.com/JietaoZhao/wannado-wce/issues"
+
+[project.scripts]
+wannado-wce = "wannado.wce.cli:main"
+
+[project.optional-dependencies]
+rl = [
+    "gymnasium>=1.0",
+]
+rf = [
+    "torchsig>=1.0",
+    "scikit-commpy>=0.8",
+]
+raytracing = [
+    "sionna>=1.0",
+    "deepmimo>=4.0",
+]
+channels = [
+    "quadriga-lib>=0.10",
+    "hermespy>=0.7",
+]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+release = [
+    "build>=1.2",
+    "twine>=5.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["wannado*"]
+namespaces = true
+
+[tool.setuptools.package-data]
+"wannado.wce.catalog" = ["*.json"]
+"wannado.wce.agent_kit" = ["*.md", "templates/*.md", "templates/*.mdc"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

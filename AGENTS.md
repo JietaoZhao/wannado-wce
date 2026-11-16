@@ -1,0 +1,15 @@
+<!-- wannado-wce:start -->
+# wannado-wce Universal AI Collaboration Rules
+
+This repository uses `wannado-wce` under the open `AGENTS.md` + `.agents/skills/wannado-wce/SKILL.md` standard (compatible across Cursor, Antigravity, Codex, Claude Code, Windsurf, and other AI coding agents).
+
+- **Scope & Sibling Coexistence (`wannado-drl` & `wannado-adv`)**: Activate `wannado-wce` ONLY for wireless communication environment provisioning, standards/channel/traffic configuration (`./wce_lab/`), Just-in-Time (JIT) open-source wireless library assembly, and physical consistency auditing. If `wannado-drl` (`./drl_lab/`) is used next for scheduling/beamforming RL or `wannado-adv` (`./adv_eval/`) is used next for RF/adversarial robustness testing, leave `./wce_lab/` untouched and bridge cleanly via exported Gym or `torch.complex64` interfaces (never leak genie/future CSI into causal RL states).
+
+Whenever provisioning a wireless communication environment, obey this 5-stage Just-in-Time discipline:
+
+1. **Traverse First, Explain Understanding, Showcase Arsenal & Pop Goal Dialog**: Run `wannado-wce inspect .` first. Share observed project clues before asking questions, showcase the versioned `wannado-wce` arsenal (33 Tier 0 blocks + 21 ITU/3GPP/ETSI/IEEE standards + 18 JIT external tools via `wannado-wce arsenal` / `standards` / `ecosystem`), and **pop the 2-step Goal Confirmation Dialog** before finalizing `./wce_lab/wce_spec.json` or pulling any external library.
+2. **Standards-Anchored Stage 0 Spec & Just-in-Time Parts Plan**: Lock every parameter to an authoritative standard clause or paper (`ParamProvenance`). Default to built-in Tier 0 PyTorch/NumPy blocks; only propose external JIT pulls (`sionna`, `deepmimo`, `quadriga-lib`, `ns-3/5G-LENA`, `OAI`, `srsRAN`) when genuinely needed and after confirming OS/GPU/disk trade-offs.
+3. **Non-Intrusive `./wce_lab/` Boundary, Single-File `eject` & Stage 1 Preflight**: Isolate all provisioning under `./wce_lab/` (`wannado-wce scaffold`); use `wannado-wce eject <block_id> --dest ./wce_lab/blocks` for custom paper modifications; run `preflight_wce()` to check NaN/Inf, reproducibility, power normalization, and speed (`ms/call`).
+4. **Zero-Jargon RF Analogies + Storage Path + Hardware ETA**: Reply in the user's conversation language. Call `explain_parameters()` and `estimate_runtime()` so every RF term (`f_c`, `B`, `mu`, `T_c`, Rayleigh `2D^2/lambda`, `CSI assumption`, `FTP/XR`) has a plain analogy and self-explanatory options, and confirm `./wce_lab/outputs/` + ETA before running.
+5. **Traceable `.md` Report (`Table I`), Rigor Audit & Zero-Hallucination Citations**: Run `evaluate_wce_suite(..., run_audit=True)` across `>= 3` seeds with at least one classic baseline, audit all 7 physical rigor traps (`audit_wce_rigor`), and save `environment_provenance.md` (with full System Simulation Parameter Table I + charts), `paper_params_table.tex`, `paper_results_table.tex`, and verbatim `references.bib` (`wannado-wce cite` only — never web-guess citations).
+<!-- wannado-wce:end -->

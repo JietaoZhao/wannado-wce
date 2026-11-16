@@ -1,0 +1,242 @@
+"""Command-line interface for the wannado-wce standards-anchored wireless environment provisioning platform."""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import json
+from collections.abc import Sequence
+from pathlib import Path
+
+from wannado.wce.agent_kit import install_agent_kit
+from wannado.wce.audit import preflight_wce
+from wannado.wce.catalog.build_catalog import build_registry_json, query_catalog
+from wannado.wce.copilot import (
+    build_arsenal_showcase,
+    build_interactive_brief,
+    format_arsenal_overview,
+    get_sota_lineage,
+    recommend_wce_blueprint,
+    scan_project,
+)
+from wannado.wce.core.provenance import STANDARDS_PROVENANCE
+from wannado.wce.intake import audit_wce_spec, build_wce_archetype
+from wannado.wce.reporter import export_citations
+from wannado.wce.standards.ecosystem import ECOSYSTEM_REGISTRY, format_ecosystem_table, probe_local_ecosystem
+from wannado.wce.workspace import eject_block, scaffold_wce_lab
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="wannado-wce",
+        description="Standards-anchored, Just-in-Time wireless communication environment quick provisioning.",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p_inspect = sub.add_parser("inspect", help="Scan project, surface wireless clues, arsenal, goal dialog, and JIT plan.")
+    p_inspect.add_argument("project_dir", nargs="?", default=".")
+    p_inspect.add_argument("--query", default=None, help="Optional one-sentence research topic override.")
+    p_inspect.add_argument("--json", action="store_true", dest="as_json")
+
+    p_ars = sub.add_parser("arsenal", help="Display versioned wannado-wce 33-block + 21-standard + 18-tool arsenal.")
+    p_ars.add_argument("--json", action="store_true", dest="as_json")
+
+    p_std = sub.add_parser("standards", help="List built-in ITU-R, 3GPP, ETSI, and IEEE authoritative standards.")
+    p_std.add_argument("--org", default=None, help="Filter by organization (ITU-R, 3GPP, ETSI, IEEE).")
+    p_std.add_argument("--json", action="store_true", dest="as_json")
+
+    p_eco = sub.add_parser("ecosystem", help="Inspect open-source wireless tools & probe local OS/GPU/Python availability.")
+    p_eco.add_argument("--probe", action="store_true", help="Include local installed tool probe.")
+    p_eco.add_argument("--json", action="store_true", dest="as_json")
+
+    p_intake = sub.add_parser("intake", help="Generate & audit a Stage 0 WCESpec (wce_spec.json) from an archetype.")
+    p_intake.add_argument("--archetype", default="imt2030_immersive_xr")
+    p_intake.add_argument("--name", default=None)
+    p_intake.add_argument("--out", default="./wce_lab/wce_spec.json")
+    p_intake.add_argument("--json", action="store_true", dest="as_json")
+
+    p_cat = sub.add_parser("catalog", help="Search the 33 executable single-file wireless blocks.")
+    p_cat.add_argument("--family", default=None)
+    p_cat.add_argument("--era", default=None)
+    p_cat.add_argument("--tier", default=None)
+    p_cat.add_argument("--standard", default=None)
+    p_cat.add_argument("--rebuild", action="store_true")
+    p_cat.add_argument("--json", action="store_true", dest="as_json")
+
+    p_lin = sub.add_parser("lineage", help="Inspect evolution chains from classic fading to 6G frontier modules.")
+    p_lin.add_argument("--family", default=None)
+    p_lin.add_argument("--json", action="store_true", dest="as_json")
+
+    p_rec = sub.add_parser("recommend", help="Map a natural-language wireless goal to a WCESpec + JIT plan.")
+    p_rec.add_argument("query", nargs="+")
+    p_rec.add_argument("--json", action="store_true", dest="as_json")
+
+    p_cite = sub.add_parser("cite", help="Export verbatim verified BibTeX/IEEE/APA citations.")
+    p_cite.add_argument("ids", nargs="+", help="Block, standard, or mechanism IDs.")
+    p_cite.add_argument("--format", default="bibtex", choices=["bibtex", "ieee", "apa"])
+    p_cite.add_argument("--no-standards", action="store_true")
+    p_cite.add_argument("--no-mechanisms", action="store_true")
+
+    p_eject = sub.add_parser("eject", help="Copy ONE standalone single-file block into ./wce_lab/blocks/ for custom edits.")
+    p_eject.add_argument("block_id")
+    p_eject.add_argument("--dest", default="./wce_lab/blocks")
+    p_eject.add_argument("--name", default=None)
+    p_eject.add_argument("--overwrite", action="store_true")
+
+    p_scaf = sub.add_parser("scaffold", help="Generate non-intrusive external ./wce_lab/ harness.")
+    p_scaf.add_argument("--dir", default="./wce_lab", dest="target_dir")
+    p_scaf.add_argument("--archetype", default="imt2030_immersive_xr")
+    p_scaf.add_argument("--name", default=None)
+    p_scaf.add_argument("--overwrite", action="store_true")
+
+    p_pf = sub.add_parser("preflight", help="Run Stage 1 physics sanity & speed preflight on a block or wce_lab/interface.py.")
+    p_pf.add_argument("--block", default=None, help="Block ID to preflight directly.")
+    p_pf.add_argument("--interface", default="./wce_lab/interface.py", dest="interface_path")
+    p_pf.add_argument("--json", action="store_true", dest="as_json")
+
+    p_init = sub.add_parser("init-agent", help="Install universal AGENTS.md / Agent Skills rules + IDE adapters.")
+    p_init.add_argument("--dir", default=".", dest="project_dir")
+    p_init.add_argument("--ide", default="all", choices=["all", "universal", "cursor", "antigravity", "claude", "codex"])
+
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(list(argv) if argv is not None else None)
+
+    if args.command == "inspect":
+        scan = scan_project(args.project_dir)
+        brief = build_interactive_brief(project_scan=scan, query=args.query)
+        if args.as_json:
+            print(json.dumps(brief, indent=2, ensure_ascii=False))
+        else:
+            print(scan.format_summary())
+            ars = brief["arsenal_showcase"]
+            print(f"\n[wannado-wce v{ars['version']} Arsenal]\n  {ars['headline']}")
+            dlg = brief["goal_confirmation_dialog"]
+            print("\n[Goal Confirmation Dialog]")
+            print(f"  AI Understanding: {dlg['ai_understanding_summary']}")
+            for idx, opt in enumerate(dlg["dialog_1_confirm_goal"]["options"], start=1):
+                print(f"    [{idx}] {opt['label']}")
+            print(f"\n[Recommended Blueprint: archetype='{brief['recommended_archetype']}']")
+            print(f"  Blocks: {', '.join(brief['wce_spec']['blocks_selected'])}")
+            print(f"  Baselines: {', '.join(brief['wce_spec']['baseline_blocks'])}")
+            print(f"  ETA: ~{brief['runtime_estimate']['total_seconds']:.2f}s ({brief['runtime_estimate']['advisory']})")
+        return 0
+
+    if args.command == "arsenal":
+        print(json.dumps(build_arsenal_showcase(), indent=2, ensure_ascii=False) if args.as_json else format_arsenal_overview())
+        return 0
+
+    if args.command == "standards":
+        items = [s.to_dict() for s in STANDARDS_PROVENANCE.values() if args.org is None or s.org.lower() == args.org.lower()]
+        if args.as_json:
+            print(json.dumps(items, indent=2, ensure_ascii=False))
+        else:
+            for s in items:
+                print(f"  [{s['org']}] {s['id']:<18s} | {s['doc_id']} ({s['year']}) — {s['summary_plain']}")
+        return 0
+
+    if args.command == "ecosystem":
+        payload: dict[str, object] = {"tools": [t.to_dict() for t in ECOSYSTEM_REGISTRY.values()]}
+        if args.probe:
+            payload["local_probe"] = probe_local_ecosystem()
+        if args.as_json:
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+        else:
+            print(format_ecosystem_table())
+            if args.probe:
+                print("\n[Local Probe]:", json.dumps(payload["local_probe"], indent=2))
+        return 0
+
+    if args.command == "intake":
+        spec = build_wce_archetype(args.archetype, problem_name=args.name)
+        aud = audit_wce_spec(spec)
+        out_path = spec.save(args.out)
+        if args.as_json:
+            print(json.dumps({"saved_to": str(out_path), "wce_spec": spec.to_dict(), "audit": aud.to_dict()}, indent=2, ensure_ascii=False))
+        else:
+            print(spec.format_system_parameter_table_md())
+            print(f"\nSaved WCESpec to: {out_path} (audit ok={aud.ok})")
+        return 0
+
+    if args.command == "catalog":
+        if args.rebuild:
+            build_registry_json()
+        cards = query_catalog(family=args.family, era=args.era, tier=args.tier, standard_id=args.standard)
+        if args.as_json:
+            print(json.dumps(cards, indent=2, ensure_ascii=False))
+        else:
+            print(f"Matched {len(cards)} blocks:")
+            for c in cards:
+                print(f"  [{c['era']}][{c['family']}] {c['id']:<28s} — {c['summary_plain']}")
+        return 0
+
+    if args.command == "lineage":
+        entries = get_sota_lineage(family=args.family)
+        if args.as_json:
+            print(json.dumps(entries, indent=2, ensure_ascii=False))
+        else:
+            for e in entries:
+                print(f"  [{e['year']}][{e['era']}][{e['family']}] {e['id']:<26s} | {e['evolution_path']}")
+        return 0
+
+    if args.command == "recommend":
+        bp = recommend_wce_blueprint(" ".join(args.query))
+        out = {"archetype": bp["archetype"], "wce_spec": bp["wce_spec"], "jit_plan": bp["jit_plan"]}
+        if args.as_json:
+            print(json.dumps(out, indent=2, ensure_ascii=False))
+        else:
+            print(f"Matched Archetype: {bp['archetype']}")
+            print(bp["jit_obj"].format_summary())
+        return 0
+
+    if args.command == "cite":
+        print(export_citations(args.ids, fmt=args.format, include_standards=not args.no_standards, include_mechanisms=not args.no_mechanisms))
+        return 0
+
+    if args.command == "eject":
+        dest = eject_block(args.block_id, dest_dir=args.dest, custom_name=args.name, overwrite=args.overwrite)
+        print(f"Ejected single-file wireless block to: {dest}")
+        return 0
+
+    if args.command == "scaffold":
+        written = scaffold_wce_lab(target_dir=args.target_dir, archetype=args.archetype, problem_name=args.name, overwrite=args.overwrite)
+        print(f"Scaffolded isolated wce_lab workspace under {Path(args.target_dir).resolve()}:")
+        for role, path in written.items():
+            print(f"  - {role}: {path}")
+        return 0
+
+    if args.command == "preflight":
+        if args.block:
+            pf = preflight_wce(args.block)
+            print(json.dumps(pf.to_dict(), indent=2, ensure_ascii=False) if args.as_json else pf.format_report())
+            return 0 if pf.ok else 1
+        iface_path = Path(args.interface_path).resolve()
+        spec = importlib.util.spec_from_file_location("_wannado_wce_user_iface", iface_path)
+        if spec is None or spec.loader is None:
+            raise FileNotFoundError(f"Cannot load interface module at {iface_path}")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        iface = mod.load_wireless_interface()
+        reports = [preflight_wce(bid, wce_spec=iface.wce_spec) for bid in iface.blocks]
+        if args.as_json:
+            print(json.dumps([r.to_dict() for r in reports], indent=2, ensure_ascii=False))
+        else:
+            for r in reports:
+                print(r.format_report())
+        return 0 if all(r.ok for r in reports) else 1
+
+    if args.command == "init-agent":
+        written = install_agent_kit(project_dir=args.project_dir, ide=args.ide)
+        print(f"Installed wannado-wce AI Co-Pilot skill/rules for ide='{args.ide}':")
+        for role, path in written.items():
+            print(f"  - {role}: {path}")
+        return 0
+
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
