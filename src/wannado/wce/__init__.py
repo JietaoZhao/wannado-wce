@@ -10,17 +10,22 @@ from typing import Any
 
 from wannado.wce.blocks import BLOCK_EXPORTS, lazy_resolve
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     **BLOCK_EXPORTS,
-    # Stage 0 standards-anchored requirement intake & JIT planning
+    # Stage 0 standards-anchored requirement intake, 4-slot composition, live diff & JIT planning
+    "ComposedSlotDecision": ("wannado.wce.intake", "ComposedSlotDecision"),
     "JITProvisioningPlan": ("wannado.wce.intake", "JITProvisioningPlan"),
     "SpecAuditReport": ("wannado.wce.intake", "SpecAuditReport"),
+    "SpecDiffReport": ("wannado.wce.intake", "SpecDiffReport"),
     "WCESpec": ("wannado.wce.intake", "WCESpec"),
     "audit_wce_spec": ("wannado.wce.intake", "audit_wce_spec"),
     "build_jit_plan": ("wannado.wce.intake", "build_jit_plan"),
     "build_wce_archetype": ("wannado.wce.intake", "build_wce_archetype"),
+    "compose_wce_spec": ("wannado.wce.intake", "compose_wce_spec"),
+    "parse_param_updates_from_text": ("wannado.wce.intake", "parse_param_updates_from_text"),
+    "update_wce_spec_with_diff": ("wannado.wce.intake", "update_wce_spec_with_diff"),
     # Stage 1 preflight & Stage 3 wireless physics rigor auditor
     "PreflightReport": ("wannado.wce.audit", "PreflightReport"),
     "RigorAuditReport": ("wannado.wce.audit", "RigorAuditReport"),
@@ -39,7 +44,9 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "get_sota_lineage": ("wannado.wce.copilot", "get_sota_lineage"),
     "recommend_wce_blueprint": ("wannado.wce.copilot", "recommend_wce_blueprint"),
     "scan_project": ("wannado.wce.copilot", "scan_project"),
-    # Non-intrusive ./wce_lab/ boundary & single-file ejection
+    # Non-intrusive ./wce_lab/ boundary, forward-coupled ComposedWirelessEnv & single-file ejection
+    "ComposedSlotOutput": ("wannado.wce.workspace", "ComposedSlotOutput"),
+    "ComposedWirelessEnv": ("wannado.wce.workspace", "ComposedWirelessEnv"),
     "WirelessEnvInterface": ("wannado.wce.workspace", "WirelessEnvInterface"),
     "eject_block": ("wannado.wce.workspace", "eject_block"),
     "scaffold_wce_lab": ("wannado.wce.workspace", "scaffold_wce_lab"),
@@ -56,13 +63,21 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "get_taxonomy_tree": ("wannado.wce.catalog", "get_taxonomy_tree"),
     "load_catalog": ("wannado.wce.catalog", "load_catalog"),
     "query_catalog": ("wannado.wce.catalog", "query_catalog"),
-    # Authoritative standards & open-source ecosystem helpers
+    # Authoritative standards & open-source ecosystem + JIT glue helpers
+    "DEEPMIMO_SCENARIO_CATALOG": ("wannado.wce.standards", "DEEPMIMO_SCENARIO_CATALOG"),
     "ECOSYSTEM_REGISTRY": ("wannado.wce.standards", "ECOSYSTEM_REGISTRY"),
     "IMT2030_USAGE_SCENARIOS": ("wannado.wce.standards", "IMT2030_USAGE_SCENARIOS"),
+    "JITAdapterRecipe": ("wannado.wce.standards", "JITAdapterRecipe"),
+    "JIT_RECIPES": ("wannado.wce.standards", "JIT_RECIPES"),
+    "check_tool_platform_readiness": ("wannado.wce.standards", "check_tool_platform_readiness"),
     "format_ecosystem_table": ("wannado.wce.standards", "format_ecosystem_table"),
+    "get_jit_recipe": ("wannado.wce.standards", "get_jit_recipe"),
     "match_imt2030_scenario": ("wannado.wce.standards", "match_imt2030_scenario"),
     "probe_local_ecosystem": ("wannado.wce.standards", "probe_local_ecosystem"),
     "recommend_ecosystem_tools": ("wannado.wce.standards", "recommend_ecosystem_tools"),
+    "render_jit_adapter_code": ("wannado.wce.standards", "render_jit_adapter_code"),
+    "verify_jit_adapter_file": ("wannado.wce.standards", "verify_jit_adapter_file"),
+    "write_jit_adapter_bundle": ("wannado.wce.standards", "write_jit_adapter_bundle"),
     # Core primitives, adapters & provenance registries
     "ChannelModuleAdapter": ("wannado.wce.core", "ChannelModuleAdapter"),
     "LitCitation": ("wannado.wce.core", "LitCitation"),
@@ -73,8 +88,10 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "StandardRef": ("wannado.wce.core", "StandardRef"),
     "WCEMeta": ("wannado.wce.core", "WCEMeta"),
     "WirelessGymEnvAdapter": ("wannado.wce.core", "WirelessGymEnvAdapter"),
+    "adapt_external_channel_tensor": ("wannado.wce.core", "adapt_external_channel_tensor"),
     "get_standard_ref": ("wannado.wce.core", "get_standard_ref"),
     "resolve_block_provenance": ("wannado.wce.core", "resolve_block_provenance"),
+    "verify_external_channel_adapter": ("wannado.wce.core", "verify_external_channel_adapter"),
 }
 
 __all__ = ["__version__", *_LAZY_EXPORTS.keys()]

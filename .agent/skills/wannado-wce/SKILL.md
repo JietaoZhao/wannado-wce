@@ -36,19 +36,29 @@ Whenever the user wants to configure or build a wireless communication environme
 
 ---
 
-## Stage 0: Standards-Anchored Requirement Intake & JIT Parts Plan (`wce_spec.json`)
-- Map the confirmed goal to a formal `WCESpec` (`recommend_wce_blueprint()` / `build_wce_archetype()` + `audit_wce_spec()`).
-- **Just-in-Time (JIT) Parts Decision**:
-  - Default to built-in **Tier 0** PyTorch/NumPy standard blocks when the user needs fast, differentiable, or multi-seed benchmark channels/queues.
-  - Only propose **Tier 1–3** pulls (`build_jit_plan()`) when genuinely needed (e.g., `sionna_rt`/`deepmimo` for 3D building ray tracing, `ns3_5glena_ns3gym` for full TCP/RLC/MAC packet stacks, `openairinterface`/`srsran_project` for real-time USRP stacks). **Always disclose OS/CUDA/disk constraints and wait for user approval before installing external heavy packages.**
+## Stage 0: 4-Slot Compositional Intake, LiveProvenance Diff & JIT Parts Plan (`wce_spec.json`)
+- Map the confirmed goal to a coupled `WCESpec` using the **4-Slot Compositional Assembler** (`wannado-wce compose "<query>"` or `compose_wce_spec()`) across:
+  1. **Propagation & Topology** (`channel_classic` / `channel_3gpp` UMa/InF/NTN/UAV/V2X)
+  2. **Antenna & Metasurface** (`farfield_upa`, `nearfield_xlmimo_thz`, `passive_ris_cascade`, `star_ris`, `active_ris_flexible`)
+  3. **6G PHY & Traffic Queue** (`isac_jsac_channel`, `otfs_delay_doppler`, `hrllc_fbl_urllc`, `semantic_aircomp_channel`, `pls_covert_antijamming`; `traffic_xr_immersive`, `traffic_ftp_models`, `multicell_interference_mac`)
+  4. **Causality & Baselines** (`realistic_estimated` / `delayed_feedback` + `ls_lmmse_csi`, `wmmse_precoder` / `water_filling`, `proportional_fair`, `awgn_link`)
+- **Minimal Clarification Rule**: If the user's request is ambiguous (e.g., "car anti-jamming"), ask only 1–2 architectural fork questions instead of dumping 10 parameter walls upfront.
+- **LiveProvenance Diff (`wannado-wce diff-spec`)**: Whenever the user tweaks ANY parameter verbally (e.g., `"change frequency to 140 GHz"` or `"use 256 RIS elements"`), call `update_wce_spec_with_diff()` / `wannado-wce diff-spec --request "..." --save` to detect Rayleigh near-field crossings (`Z_R = 2D^2/lambda`), `TR 38.901 >100 GHz` limits, and coherence breaks (`T_c < slot`), refreshing `Table I` and citations live.
+- **Just-in-Time (JIT) Parts Decision & Verified External Adapters (`wannado-wce jit-recipe`)**:
+  - Default to built-in **Tier 0** PyTorch/NumPy standard blocks when fast/differentiable channels suffice.
+  - Only propose **Tier 1–3** pulls when genuinely needed, using `wannado-wce jit-recipe <tool_id> --verify` (`check_tool_platform_readiness` + `write_jit_adapter_bundle`) to:
+    - Check DeepMIMO scenario disk size (`check_tool_platform_readiness`) BEFORE downloading;
+    - Guard macOS/Windows users against broken native C++ `ns-3 / 5G-LENA` builds (auto-generating Docker + ZeroMQ Gym bridge);
+    - Materialize normalized `torch.complex64` adapters (`adapt_external_channel_tensor`) verified by `--self-test` & `verify_external_channel_adapter()` so pathgain separation (`E[|h|^2]=1`) and autograd pass before training.
 - Ensure **every parameter** in `wce_spec.json` carries a `ParamProvenance` linking to a specific 3GPP/ITU/ETSI/IEEE clause or canonical paper.
 
-## Stage 1: Non-Intrusive `./wce_lab/` Scaffold + Preflight Physics Sanity
+## Stage 1: Non-Intrusive `./wce_lab/` Forward Pipeline (`ComposedWirelessEnv`) + Preflight
 - **Never scatter wireless boilerplate across the user's existing model/ML files.**
 - Generate the isolated harness via:
   ```bash
-  wannado-wce scaffold --dir ./wce_lab --archetype <archetype>
+  wannado-wce scaffold --dir ./wce_lab --query "<goal>"
   ```
+  This exposes BOTH block-level evaluation AND forward-coupled `load_composed_env()` (`ComposedWirelessEnv` running `Propagation -> RIS/NearField -> Causal CSI & 6G PHY -> Traffic Queue` per slot `env.step()`), plus `./wce_lab/adapters/` when external tools are configured.
 - Run `preflight_wce()` on every selected block and classical baseline to check NaN/Inf, seeded reproducibility, normalized channel power, and hardware speed (`ms/call`).
 - To customize a physics formula from a new paper, copy ONLY that standalone file via:
   ```bash

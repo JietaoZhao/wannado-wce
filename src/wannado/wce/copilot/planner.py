@@ -16,10 +16,12 @@ from wannado.wce.copilot.project_inspector import ProjectScan
 from wannado.wce.core.provenance import STANDARDS_PROVENANCE
 from wannado.wce.core.utils import complex_normal, resolve_device
 from wannado.wce.intake.archetypes import build_wce_archetype
+from wannado.wce.intake.composer import compose_wce_spec
 from wannado.wce.intake.jit_planner import build_jit_plan
 from wannado.wce.intake.spec import WCESpec
 from wannado.wce.standards.ecosystem import ECOSYSTEM_REGISTRY
 from wannado.wce.standards.itu_imt2030 import match_imt2030_scenario
+from wannado.wce.standards.jit_recipes import JIT_RECIPES
 
 _FAMILY_LABELS: dict[str, str] = {
     "channel_classic": "Classic Statistical & Stochastic Geometry (经典衰落与随机几何)",
@@ -311,8 +313,13 @@ def explain_parameters(
     }
 
 
-def recommend_wce_blueprint(query_or_archetype: str, *, problem_name: str | None = None) -> dict[str, Any]:
-    """Map user's natural-language research goal or archetype ID into a complete WCESpec + JIT Plan."""
+def recommend_wce_blueprint(
+    query_or_archetype: str,
+    *,
+    problem_name: str | None = None,
+    compositional: bool | None = None,
+) -> dict[str, Any]:
+    """Map user's natural-language research goal or archetype ID into a complete WCESpec + 4-Slot Plan + JIT Plan."""
     q = query_or_archetype.lower()
     known_archetypes = (
         "imt2030_immersive_xr",
@@ -327,8 +334,29 @@ def recommend_wce_blueprint(query_or_archetype: str, *, problem_name: str | None
         "multicell_ofdma_mac",
         "jamming_contested_rf",
     )
+    composed_spec, comp_plan = compose_wce_spec(query_or_archetype, problem_name=problem_name)
+
+    distinct_signals = sum([
+        any(k in q for k in ("isac", "jsac", "sensing", "radar", "通感")),
+        any(k in q for k in ("near-field", "nearfield", "xl-mimo", "thz", "近场", "太赫兹")),
+        any(k in q for k in ("uav", "drone", "无人机")),
+        any(k in q for k in ("ris", "irs", "star-ris", "star_ris", "超表面")),
+        any(k in q for k in ("leo", "ntn", "satellite", "卫星")),
+        any(k in q for k in ("v2x", "v2v", "highway", "车联网")),
+        any(k in q for k in ("urllc", "hrllc", "fbl", "短包", "工厂")),
+        any(k in q for k in ("xr", "fps", "38.838", "沉浸式")),
+        any(k in q for k in ("semantic", "aircomp", "ckm", "语义", "空中计算")),
+        any(k in q for k in ("jam", "covert", "wiretap", "secrecy", "抗干扰", "隐蔽")),
+    ])
+    use_composed = (q not in known_archetypes) and (
+        compositional is True
+        or (compositional is None and (distinct_signals >= 2 or bool(comp_plan["extracted_numeric_overrides"])))
+    )
+
     if q in known_archetypes:
         arch = q
+    elif use_composed:
+        arch = "composed_custom"
     elif any(k in q for k in ("isac", "jsac", "sensing", "radar", "通感")):
         arch = "imt2030_isac_monostatic"
     elif any(k in q for k in ("near-field", "nearfield", "xl-mimo", "thz", "近场", "太赫兹")):
@@ -361,16 +389,24 @@ def recommend_wce_blueprint(query_or_archetype: str, *, problem_name: str | None
         }
         arch = arch_map.get(matched.id, "imt2030_immersive_xr")
 
-    spec = build_wce_archetype(arch, problem_name=problem_name)
+    spec = composed_spec if use_composed else build_wce_archetype(arch, problem_name=problem_name)
     jit = build_jit_plan(
         spec,
         needs_ray_tracing=any(k in q for k in ("ray tracing", "ray-tracing", "deepmimo", "sionna rt", "射线追踪")),
         needs_full_protocol_stack=any(k in q for k in ("ns-3", "ns3", "tcp", "rlc", "pdcp", "5g-lena", "simu5g", "协议栈")),
         needs_real_sdr_oran=any(k in q for k in ("oai", "openairinterface", "srsran", "usrp", "oran", "o-ran", "ric")),
         needs_rf_iq_ml=any(k in q for k in ("torchsig", "modulation", "amc", "调制识别")),
-        needs_isac_waveform="isac" in arch,
+        needs_isac_waveform="isac" in q or "isac" in arch,
     )
-    return {"archetype": arch, "wce_spec": spec.to_dict(), "jit_plan": jit.to_dict(), "spec_obj": spec, "jit_obj": jit}
+    return {
+        "archetype": arch,
+        "composition_plan": comp_plan,
+        "wce_spec": spec.to_dict(),
+        "jit_plan": jit.to_dict(),
+        "jit_recipes_available": sorted(JIT_RECIPES.keys()),
+        "spec_obj": spec,
+        "jit_obj": jit,
+    }
 
 
 def estimate_runtime(
@@ -441,8 +477,10 @@ def build_interactive_brief(
         "arsenal_showcase": ars,
         "goal_confirmation_dialog": dlg,
         "recommended_archetype": bp["archetype"],
+        "composition_plan": bp.get("composition_plan"),
         "wce_spec": bp["wce_spec"],
         "jit_plan": bp["jit_plan"],
+        "jit_recipes_available": bp.get("jit_recipes_available", []),
         "parameter_explanations": param_guide,
         "questions_to_ask_user": list(param_guide.values()),
         "runtime_estimate": eta.to_dict(),

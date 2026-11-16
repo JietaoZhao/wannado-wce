@@ -5,8 +5,10 @@ from wannado.wce.core.adapters import (
     SimpleBoxSpace,
     SimpleDiscreteSpace,
     WirelessGymEnvAdapter,
+    adapt_external_channel_tensor,
     export_dataset_npz,
     export_dataset_pt,
+    verify_external_channel_adapter,
 )
 from wannado.wce.core.geometry import (
     compute_elevation_azimuth,
@@ -86,6 +88,7 @@ __all__ = [
     "TierType",
     "WCEMeta",
     "WirelessGymEnvAdapter",
+    "adapt_external_channel_tensor",
     "aggregate_seed_stats",
     "coherence_time_sec",
     "complex_normal",
@@ -97,6 +100,7 @@ __all__ = [
     "effective_rayleigh_distance_m",
     "export_dataset_npz",
     "export_dataset_pt",
+    "verify_external_channel_adapter",
     "generate_ppp_positions",
     "get_standard_ref",
     "hex_multicell_layout",

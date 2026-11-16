@@ -24,7 +24,7 @@ ADV_SRC = Path("/Users/howen/Desktop/WannaDo/wannado-adv/src")
 class TestPackagingAndCoexistence(unittest.TestCase):
     def test_no_wannado_init_py_pep420_namespace(self) -> None:
         self.assertFalse((WCE_SRC / "wannado" / "__init__.py").exists())
-        self.assertEqual(__version__, "1.0.0")
+        self.assertEqual(__version__, "1.1.0")
 
     def test_three_way_wannado_namespace_import(self) -> None:
         added: list[str] = []

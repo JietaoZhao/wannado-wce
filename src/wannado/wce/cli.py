@@ -20,9 +20,21 @@ from wannado.wce.copilot import (
     scan_project,
 )
 from wannado.wce.core.provenance import STANDARDS_PROVENANCE
-from wannado.wce.intake import audit_wce_spec, build_wce_archetype
+from wannado.wce.intake import (
+    WCESpec,
+    audit_wce_spec,
+    build_wce_archetype,
+    compose_wce_spec,
+    update_wce_spec_with_diff,
+)
 from wannado.wce.reporter import export_citations
 from wannado.wce.standards.ecosystem import ECOSYSTEM_REGISTRY, format_ecosystem_table, probe_local_ecosystem
+from wannado.wce.standards.jit_recipes import (
+    JIT_RECIPES,
+    check_tool_platform_readiness,
+    verify_jit_adapter_file,
+    write_jit_adapter_bundle,
+)
 from wannado.wce.workspace import eject_block, scaffold_wce_lab
 
 
@@ -71,6 +83,26 @@ def _build_parser() -> argparse.ArgumentParser:
     p_rec.add_argument("query", nargs="+")
     p_rec.add_argument("--json", action="store_true", dest="as_json")
 
+    p_comp = sub.add_parser("compose", help="4-Slot Compositional Assembler parsing free-form multi-tech goals.")
+    p_comp.add_argument("query", nargs="+")
+    p_comp.add_argument("--name", default=None)
+    p_comp.add_argument("--out", default=None, help="Optional path to save composed wce_spec.json.")
+    p_comp.add_argument("--json", action="store_true", dest="as_json")
+
+    p_diff = sub.add_parser("diff-spec", help="Apply live parameter edits with LiveProvenance Diff & boundary alerts.")
+    p_diff.add_argument("--spec", default="./wce_lab/wce_spec.json")
+    p_diff.add_argument("--request", default=None, help="Natural-language update e.g. '把频段改成140 GHz'.")
+    p_diff.add_argument("--set", nargs="*", default=[], dest="kv_sets", help="key=value overrides.")
+    p_diff.add_argument("--save", action="store_true", help="Write updated WCESpec back to --spec path.")
+    p_diff.add_argument("--json", action="store_true", dest="as_json")
+
+    p_jit = sub.add_parser("jit-recipe", help="Check platform/disk readiness, generate adapter glue, and run --self-test.")
+    p_jit.add_argument("tool_id", choices=sorted(JIT_RECIPES.keys()))
+    p_jit.add_argument("--write-dir", default=None, dest="write_dir", help="Directory to write verified adapter script.")
+    p_jit.add_argument("--scenario", default="asu_campus_3p5", help="DeepMIMO scenario disk check target.")
+    p_jit.add_argument("--verify", action="store_true", help="Execute adapter --self-test after writing.")
+    p_jit.add_argument("--json", action="store_true", dest="as_json")
+
     p_cite = sub.add_parser("cite", help="Export verbatim verified BibTeX/IEEE/APA citations.")
     p_cite.add_argument("ids", nargs="+", help="Block, standard, or mechanism IDs.")
     p_cite.add_argument("--format", default="bibtex", choices=["bibtex", "ieee", "apa"])
@@ -86,6 +118,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_scaf = sub.add_parser("scaffold", help="Generate non-intrusive external ./wce_lab/ harness.")
     p_scaf.add_argument("--dir", default="./wce_lab", dest="target_dir")
     p_scaf.add_argument("--archetype", default="imt2030_immersive_xr")
+    p_scaf.add_argument("--query", default=None, help="Optional free-form goal using 4-slot Compositional Assembler.")
     p_scaf.add_argument("--name", default=None)
     p_scaf.add_argument("--overwrite", action="store_true")
 
@@ -184,12 +217,87 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "recommend":
         bp = recommend_wce_blueprint(" ".join(args.query))
-        out = {"archetype": bp["archetype"], "wce_spec": bp["wce_spec"], "jit_plan": bp["jit_plan"]}
+        out = {
+            "archetype": bp["archetype"],
+            "composition_plan": bp.get("composition_plan"),
+            "wce_spec": bp["wce_spec"],
+            "jit_plan": bp["jit_plan"],
+        }
         if args.as_json:
             print(json.dumps(out, indent=2, ensure_ascii=False))
         else:
             print(f"Matched Archetype: {bp['archetype']}")
             print(bp["jit_obj"].format_summary())
+        return 0
+
+    if args.command == "compose":
+        spec, plan = compose_wce_spec(" ".join(args.query), problem_name=args.name)
+        aud = audit_wce_spec(spec)
+        saved_to = str(spec.save(args.out)) if args.out else None
+        payload = {"saved_to": saved_to, "composition_plan": plan, "wce_spec": spec.to_dict(), "audit": aud.to_dict()}
+        if args.as_json:
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+        else:
+            print("[4-Slot Compositional Wireless Plan]")
+            for sl in plan["slots"]:
+                print(f"  - {sl['slot_name']}: {', '.join(sl['blocks'])}  ({sl['rationale']})")
+            if plan["boundary_alerts"]:
+                print("\n[Coupled Physics & Standard Alerts]:")
+                for a in plan["boundary_alerts"]:
+                    print(f"  ! {a}")
+            print("\n" + spec.format_system_parameter_table_md())
+        return 0
+
+    if args.command == "diff-spec":
+        spec = WCESpec.load(args.spec)
+        updates: dict[str, object] = {}
+        if args.request:
+            from wannado.wce.intake.composer import parse_param_updates_from_text
+
+            updates.update(parse_param_updates_from_text(args.request))
+        for item in args.kv_sets:
+            if "=" in item:
+                k, raw_v = item.split("=", 1)
+                k = k.strip()
+                try:
+                    updates[k] = float(raw_v) if ("." in raw_v or "e" in raw_v.lower()) else int(raw_v)
+                except ValueError:
+                    updates[k] = raw_v
+        diff_rep = update_wce_spec_with_diff(spec, updates)
+        if args.save:
+            diff_rep.updated_spec.save(args.spec)
+        if args.as_json:
+            print(json.dumps(diff_rep.to_dict(), indent=2, ensure_ascii=False))
+        else:
+            print(diff_rep.format_summary())
+            print("\n" + diff_rep.updated_table1_md)
+        return 0
+
+    if args.command == "jit-recipe":
+        readiness = check_tool_platform_readiness(args.tool_id, deepmimo_scenario=args.scenario)
+        written_files: dict[str, str] = {}
+        verify_res: dict[str, object] | None = None
+        if args.write_dir or args.verify:
+            target = Path(args.write_dir) if args.write_dir else Path("./wce_lab/adapters")
+            bundle = write_jit_adapter_bundle(args.tool_id, dest_dir=target, overwrite=True)
+            written_files = {k: str(v) for k, v in bundle.items()}
+            if args.verify and "adapter_py" in bundle:
+                verify_res = verify_jit_adapter_file(bundle["adapter_py"])
+        payload = {"readiness": readiness, "written_files": written_files, "verification": verify_res}
+        if args.as_json:
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+        else:
+            print(f"[wannado-wce JIT Recipe: {args.tool_id}] ready_to_pull={readiness['ready_to_pull']}, free_disk={readiness['free_disk_gb']} GB")
+            for w in readiness["warnings"]:
+                print(f"  Warning: {w}")
+            for b in readiness["blockers"]:
+                print(f"  Blocker: {b}")
+            for k, p in written_files.items():
+                print(f"  Wrote {k}: {p}")
+            if verify_res is not None:
+                print(f"  Adapter --self-test ok={verify_res.get('ok')}")
+        if verify_res is not None and not verify_res.get("ok"):
+            return 1
         return 0
 
     if args.command == "cite":
@@ -202,7 +310,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "scaffold":
-        written = scaffold_wce_lab(target_dir=args.target_dir, archetype=args.archetype, problem_name=args.name, overwrite=args.overwrite)
+        written = scaffold_wce_lab(target_dir=args.target_dir, archetype=args.archetype, query=args.query, problem_name=args.name, overwrite=args.overwrite)
         print(f"Scaffolded isolated wce_lab workspace under {Path(args.target_dir).resolve()}:")
         for role, path in written.items():
             print(f"  - {role}: {path}")

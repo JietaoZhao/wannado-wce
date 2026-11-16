@@ -10,8 +10,11 @@ from typing import Any
 from wannado.wce.blocks import BLOCK_ID_TO_RUNNER
 from wannado.wce.catalog.build_catalog import WCE_ROOT, load_catalog
 from wannado.wce.intake.archetypes import build_wce_archetype
+from wannado.wce.intake.composer import compose_wce_spec
 from wannado.wce.intake.jit_planner import build_jit_plan
 from wannado.wce.intake.spec import WCESpec
+from wannado.wce.standards.jit_recipes import JIT_RECIPES, write_jit_adapter_bundle
+from wannado.wce.workspace.composed_env import ComposedWirelessEnv
 
 
 @dataclass
@@ -23,6 +26,10 @@ class WirelessEnvInterface:
     baseline_blocks: list[str] = field(default_factory=list)
     task_name: str = "MyWirelessEnv"
     extra_metadata: dict[str, Any] = field(default_factory=dict)
+
+    def build_composed_env(self, *, batch_size: int = 32, seed: int = 42) -> ComposedWirelessEnv:
+        """Instantiate forward-coupled ComposedWirelessEnv chaining all selected pipeline blocks."""
+        return ComposedWirelessEnv(self.wce_spec, batch_size=batch_size, seed=seed)
 
 
 def _resolve_block_source_path(block_id: str) -> tuple[dict[str, Any], Path]:
@@ -84,8 +91,8 @@ def eject_block(
 def _interface_template(spec: WCESpec) -> str:
     return f'''"""Isolated wireless environment provisioning boundary (`wce_lab/interface.py`).
 
-Loads Stage 0 `wce_spec.json` and exposes `load_wireless_interface()` without modifying
-your downstream research scripts, DRL trainers, or adversarial testers.
+Loads Stage 0 `wce_spec.json` and exposes `load_wireless_interface()` plus forward-coupled
+`load_composed_env()` without modifying your downstream scripts, DRL trainers, or Adv testers.
 """
 
 from __future__ import annotations
@@ -94,7 +101,7 @@ import sys
 from pathlib import Path
 
 from wannado.wce.intake import WCESpec
-from wannado.wce.workspace import WirelessEnvInterface
+from wannado.wce.workspace import ComposedWirelessEnv, WirelessEnvInterface
 
 _LAB_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _LAB_DIR.parent
@@ -111,6 +118,11 @@ def load_wireless_interface() -> WirelessEnvInterface:
         baseline_blocks=list(spec.baseline_blocks),
         task_name=spec.problem_name,
     )
+
+
+def load_composed_env(*, batch_size: int = 32, seed: int = 42) -> ComposedWirelessEnv:
+    """Build forward-coupled ComposedWirelessEnv ready for ``for slot in range(T): env.step()``."""
+    return load_wireless_interface().build_composed_env(batch_size=batch_size, seed=seed)
 '''
 
 
@@ -127,11 +139,11 @@ import argparse
 from pathlib import Path
 
 try:
-    from .interface import load_wireless_interface
+    from .interface import load_composed_env, load_wireless_interface
 except ImportError:
-    from interface import load_wireless_interface
+    from interface import load_composed_env, load_wireless_interface
 
-from wannado.wce.audit import preflight_wce
+from wannado.wce.audit import audit_wce_rigor, preflight_wce
 from wannado.wce.copilot import build_post_run_debrief
 from wannado.wce.reporter import evaluate_wce_suite
 
@@ -140,6 +152,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run isolated wannado-wce Stage 1-4 provisioning & provenance export.")
     parser.add_argument("--seeds", nargs="+", type=int, default=[0, 1, 2])
     parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--slots", type=int, default=20)
     parser.add_argument("--no-audit", action="store_true")
     args = parser.parse_args()
 
@@ -150,6 +163,12 @@ def main() -> None:
         print(pf.format_report())
         if not pf.ok:
             raise SystemExit(1)
+
+    # Execute forward-coupled ComposedWirelessEnv multi-seed verification
+    traj_runs = [load_composed_env(seed=s).to_rigor_result(num_slots=args.slots, seed=s) for s in args.seeds]
+    traj_audit = audit_wce_rigor(traj_runs, wce_spec=iface.wce_spec, has_classic_baseline=bool(iface.baseline_blocks), min_seeds=len(args.seeds))
+    print("\\n[ComposedWirelessEnv Forward Pipeline Check]:")
+    print(traj_audit.format_report())
 
     report = evaluate_wce_suite(
         all_blocks,
@@ -176,14 +195,20 @@ def scaffold_wce_lab(
     target_dir: str | Path = "./wce_lab",
     *,
     archetype: str = "imt2030_immersive_xr",
+    query: str | None = None,
     problem_name: str | None = None,
     wce_spec: WCESpec | None = None,
     overwrite: bool = False,
 ) -> dict[str, Path]:
-    """Create non-intrusive ./wce_lab/ harness (wce_spec.json, interface.py, run_provision.py, jit_setup.sh)."""
+    """Create non-intrusive ./wce_lab/ harness (wce_spec.json, interface.py, run_provision.py, jit_setup.sh, adapters/)."""
     lab_dir = Path(target_dir).resolve()
     lab_dir.mkdir(parents=True, exist_ok=True)
-    spec = wce_spec or build_wce_archetype(archetype, problem_name=problem_name)
+    if wce_spec is not None:
+        spec = wce_spec
+    elif query:
+        spec, _ = compose_wce_spec(query, problem_name=problem_name)
+    else:
+        spec = build_wce_archetype(archetype, problem_name=problem_name)
 
     written: dict[str, Path] = {}
     spec_path = lab_dir / "wce_spec.json"
@@ -206,7 +231,7 @@ def scaffold_wce_lab(
     if not jit_script.exists() or overwrite:
         lines = [
             "#!/usr/bin/env bash",
-            "# [wannado-wce Just-in-Time External Tool Pull Script]",
+            "# [wannado-wce Just-in-Time External Tool Pull & Adapter Self-Test Script]",
             "# Run ONLY the lines explicitly approved by the user for heavy/external simulators.",
             "set -euo pipefail",
             "",
@@ -219,5 +244,13 @@ def scaffold_wce_lab(
             lines.append("echo 'All selected Tier 0 built-in modules require zero external downloads.'")
         jit_script.write_text("\n".join(lines) + "\n", encoding="utf-8")
     written["jit_setup_sh"] = jit_script
+
+    # Materialize verified external adapters whenever non-builtin ecosystem tools are configured
+    adapters_dir = lab_dir / "adapters"
+    for tid in spec.ecosystem_tools:
+        if tid in JIT_RECIPES:
+            bundle = write_jit_adapter_bundle(tid, dest_dir=adapters_dir, overwrite=overwrite)
+            for key, path in bundle.items():
+                written[f"adapter_{tid}_{key}"] = path
 
     return written
