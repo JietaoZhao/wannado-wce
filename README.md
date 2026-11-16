@@ -1,5 +1,9 @@
 # WannaDo-WCE (`wannado-wce`)
 
+*Wanna do a wireless communication simulation?*
+
+*This library enables you to set up your fundamental wireless communication environment during the chat with your IDE, preventing hallucinations and strictly adhering to 3GPP and ITU standards*
+
 **Standards-Anchored, Just-in-Time (JIT) Wireless Communication Environment Quick Provisioning for 5G-Advanced, 6G / IMT-2030, ISAC, RIS, Near-Field XL-MIMO, NTN, UAV, V2X, and AI-Native Networks**
 
 [![Version](https://img.shields.io/badge/version-1.0.0-2563eb)](file:///Users/howen/Desktop/WannaDo/wannado-wce/pyproject.toml)
