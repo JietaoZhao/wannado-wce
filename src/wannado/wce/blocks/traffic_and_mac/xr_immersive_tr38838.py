@@ -89,7 +89,7 @@ def provision_traffic_xr_immersive(config: XRTrafficConfig | None = None, **over
 
     # Baseline FIFO / Equal-Share PDB check over the shared cell capacity
     bytes_per_slot_cap = (cfg.link_capacity_mbps * 1e6 / 8.0) * (cfg.slot_duration_ms * 1e-3)
-    pdb_slots = max(1, int(round(cfg.pdb_ms / cfg.slot_duration_ms)))
+    pdb_slots = max(1, round(cfg.pdb_ms / cfg.slot_duration_ms))
     satisfied_users = 0
     packet_sat_rates: list[float] = []
     per_user_cap = bytes_per_slot_cap / max(1, cfg.num_users)

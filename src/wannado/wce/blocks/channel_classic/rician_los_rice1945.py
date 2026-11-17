@@ -19,7 +19,6 @@ from typing import Any
 
 import torch
 
-from wannado.wce.core.provenance import MECHANISM_PROVENANCE
 from wannado.wce.core.types import LitCitation, ParamProvenance, ProvisionResult, WCEMeta
 from wannado.wce.core.units import db_to_linear, doppler_max_hz
 from wannado.wce.core.utils import complex_normal, resolve_device, set_global_seed

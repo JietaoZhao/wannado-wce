@@ -145,6 +145,15 @@ def compute_los_probability_tr38901(
     raise ValueError(f"Unsupported TR 38.901 scenario '{scenario}'.")
 
 
+def _select_sf_std(los_mask: np.ndarray, sf_los: float, sf_nlos: float) -> float | np.ndarray:
+    """Return scalar sigma_SF when all links share the same state, else per-link array."""
+    if bool(np.all(los_mask)):
+        return float(sf_los)
+    if bool(np.all(~los_mask)):
+        return float(sf_nlos)
+    return np.where(los_mask, float(sf_los), float(sf_nlos))
+
+
 def compute_pathloss_tr38901_db(
     scenario: str,
     d_2d_m: np.ndarray,
@@ -155,7 +164,7 @@ def compute_pathloss_tr38901_db(
     h_ut_m: float = 1.5,
     avg_building_h_m: float = 5.0,
     avg_street_w_m: float = 20.0,
-) -> tuple[np.ndarray, float]:
+) -> tuple[np.ndarray, float | np.ndarray]:
     """Compute (PathLoss_dB, shadow_fading_std_dB) per 3GPP TR 38.901 Table 7.4.1-1."""
     d2 = np.maximum(np.asarray(d_2d_m, dtype=np.float64), 1.0)
     d3 = np.sqrt(d2 ** 2 + (h_bs_m - h_ut_m) ** 2)
@@ -172,7 +181,7 @@ def compute_pathloss_tr38901_db(
         pl_nlos_raw = 13.54 + 39.08 * np.log10(d3) + 20.0 * math.log10(fc) - 0.6 * (h_ut_m - 1.5)
         pl_nlos = np.maximum(pl_los, pl_nlos_raw)
         pl = np.where(los_mask, pl_los, pl_nlos)
-        sf_std = 4.0 if np.all(los_mask) else (6.0 if np.all(~los_mask) else 6.0)
+        sf_std = _select_sf_std(los_mask, 4.0, 6.0)
         return pl, sf_std
 
     if scenario == "UMi":
@@ -184,7 +193,7 @@ def compute_pathloss_tr38901_db(
         pl_nlos_raw = 35.3 * np.log10(d3) + 22.4 + 21.3 * math.log10(fc) - 0.3 * (h_ut_m - 1.5)
         pl_nlos = np.maximum(pl_los, pl_nlos_raw)
         pl = np.where(los_mask, pl_los, pl_nlos)
-        sf_std = 4.0 if np.all(los_mask) else 7.82
+        sf_std = _select_sf_std(los_mask, 4.0, 7.82)
         return pl, sf_std
 
     if scenario == "RMa":
@@ -209,14 +218,14 @@ def compute_pathloss_tr38901_db(
             - (3.2 * (math.log10(11.75 * h_ut_m) ** 2) - 4.97)
         )
         pl = np.where(los_mask, pl_los, np.maximum(pl_los, pl_nlos_raw))
-        sf_std = 4.0 if np.all(los_mask) else 8.0
+        sf_std = _select_sf_std(los_mask, 4.0, 8.0)
         return pl, sf_std
 
     if scenario == "InH":
         pl_los = 32.4 + 17.3 * np.log10(d3) + 20.0 * math.log10(fc)
         pl_nlos = np.maximum(pl_los, 38.3 * np.log10(d3) + 17.30 + 24.9 * math.log10(fc))
         pl = np.where(los_mask, pl_los, pl_nlos)
-        sf_std = 3.0 if np.all(los_mask) else 8.03
+        sf_std = _select_sf_std(los_mask, 3.0, 8.03)
         return pl, sf_std
 
     if scenario.startswith("InF"):
@@ -231,7 +240,7 @@ def compute_pathloss_tr38901_db(
         c0, c1, std_nlos = nlos_table[scenario]
         pl_nlos = np.maximum(pl_los, c0 + c1 * np.log10(d3) + 20.0 * math.log10(fc))
         pl = np.where(los_mask, pl_los, pl_nlos)
-        return pl, (4.3 if np.all(los_mask) else std_nlos)
+        return pl, _select_sf_std(los_mask, 4.3, std_nlos)
 
     raise ValueError(f"Unsupported TR 38.901 scenario '{scenario}'.")
 

@@ -7,7 +7,18 @@ from typing import Any
 from wannado.wce.blocks import BLOCK_EXPORTS, lazy_resolve
 
 _FAMILY_EXPORTS = {k: v for k, v in BLOCK_EXPORTS.items() if v[0].startswith("wannado.wce.blocks.arrays_and_ris.")}
-__all__ = sorted(_FAMILY_EXPORTS.keys())
+__all__ = [
+    "ActiveRISFlexibleConfig",
+    "FarFieldUPAConfig",
+    "NearFieldXLMIMOConfig",
+    "PassiveRISConfig",
+    "STARRISConfig",
+    "provision_active_ris_flexible",
+    "provision_farfield_upa",
+    "provision_nearfield_xlmimo_thz",
+    "provision_passive_ris_cascade",
+    "provision_star_ris",
+]
 
 
 def __getattr__(name: str) -> Any:

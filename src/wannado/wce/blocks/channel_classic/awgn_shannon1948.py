@@ -20,9 +20,8 @@ from typing import Any
 import torch
 
 from wannado.wce.core.provenance import MECHANISM_PROVENANCE
-from wannado.wce.core.types import LitCitation, ParamProvenance, ProvisionResult, WCEMeta
+from wannado.wce.core.types import ParamProvenance, ProvisionResult, WCEMeta
 from wannado.wce.core.units import (
-    db_to_linear,
     dbm_to_watt,
     linear_to_db,
     thermal_noise_power_dbm,
@@ -106,7 +105,7 @@ def provision_awgn_link(config: AWGNConfig | None = None, **overrides: Any) -> P
     prov = [
         ParamProvenance("bandwidth_hz", cfg.bandwidth_hz, "Hz", "Signal bandwidth", "gpp_ts38211", "Clause 4.2", "3gpp_ts38211", "Defines noise integration bandwidth B and capacity scaling."),
         ParamProvenance("noise_figure_db", cfg.noise_figure_db, "dB", "Receiver RF front-end noise figure", "gpp_tr38913", "Clause 6", "3gpp_tr38913", "Standard UE/gNB thermal noise floor offset above k_B*T*B."),
-        ParamProvenance("tx_power_dbm", cfg.tx_power_dbm, "dBm", "Transmitter power", "gpp_tr38913", "Clause 6", "3gpp_tr38913", "Typical 3GPP UE max transmit power (23 dBm)."),
+        ParamProvenance("tx_power_dbm", cfg.tx_power_dbm, "dBm", "Transmitter power", "gpp_tr38913", "Clause 6", "3gpp_tr38913", f"Configured transmit power/EIRP ({cfg.tx_power_dbm:g} dBm; 3GPP UE max baseline is 23 dBm, macro BS is 43-46 dBm)."),
         ParamProvenance("shannon_capacity", round(capacity_mbps, 4), "Mbps", "Asymptotic AWGN capacity ceiling", "shannon_awgn", "BSTJ 1948", "shannon1948mathematical", "Exact B*log2(1 + P_rx / (k_B*T*B*NF))."),
     ]
     return ProvisionResult(

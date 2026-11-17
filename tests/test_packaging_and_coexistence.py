@@ -15,7 +15,6 @@ from wannado.wce.copilot import get_sota_lineage
 from wannado.wce.core.provenance import BLOCK_DEFAULT_MECHANISMS, MECHANISM_PROVENANCE, STANDARDS_PROVENANCE
 from wannado.wce.standards.ecosystem import ECOSYSTEM_REGISTRY
 
-
 WCE_SRC = Path(__file__).resolve().parents[1] / "src"
 WANNA_ROOT = Path(__file__).resolve().parents[2]
 DRL_SRC = WANNA_ROOT / "wannado-drl" / "src"
@@ -25,7 +24,7 @@ ADV_SRC = WANNA_ROOT / "wannado-adv" / "src"
 class TestPackagingAndCoexistence(unittest.TestCase):
     def test_no_wannado_init_py_pep420_namespace(self) -> None:
         self.assertFalse((WCE_SRC / "wannado" / "__init__.py").exists())
-        self.assertEqual(__version__, "1.1.0")
+        self.assertEqual(__version__, "1.1.1")
 
     def test_three_way_wannado_namespace_import(self) -> None:
         added: list[str] = []

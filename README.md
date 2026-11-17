@@ -6,7 +6,7 @@
 
 **Standards-Anchored, Just-in-Time (JIT) Wireless Communication Environment Quick Provisioning for 5G-Advanced, 6G / IMT-2030, ISAC, RIS, Near-Field XL-MIMO, NTN, UAV, V2X, and AI-Native Networks**
 
-[![Version](https://img.shields.io/badge/version-1.1.0-2563eb)](https://github.com/JietaoZhao/wannado-wce/blob/main/pyproject.toml)
+[![Version](https://img.shields.io/badge/version-1.1.1-2563eb)](https://github.com/JietaoZhao/wannado-wce/blob/main/pyproject.toml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-0f766e)](https://github.com/JietaoZhao/wannado-wce/blob/main/pyproject.toml)
 [![Standards](https://img.shields.io/badge/standards-21%20ITU%2F3GPP%2FETSI%2FIEEE-7c3aed)](#1-authoritative-standards--scenario-matrix-21-standards--6-imt-2030-scenarios)
 [![Blocks](https://img.shields.io/badge/executable%20blocks-33%20single--file-059669)](#2-the-33-block-single-file-arsenal-classic--2025-frontier)

@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import math
 import time
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
@@ -108,7 +107,7 @@ def provision_v2x_vehicular_sl(config: V2XConfig | None = None, **overrides: Any
             "median_snr_db": float(np.median(linear_to_db(snr_lin))),
             "mean_channel_power": float(torch.mean(h_small.abs().pow(2)).item()),
         },
-        diagnostics={"device": str(dev), "normalized_channel_power": 1.0, "shadow_fading_std_db": sf_std},
+        diagnostics={"device": str(dev), "normalized_channel_power": 1.0, "shadow_fading_std_db": float(np.mean(sf_std))},
         parameter_provenance=prov,
         mechanisms_used=list(META.default_mechanisms),
         standard_ids_used=list(META.standard_ids),

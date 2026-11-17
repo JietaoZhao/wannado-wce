@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 import time
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -143,8 +143,10 @@ def format_arsenal_overview() -> str:
     """Format a Markdown table summarizing the entire wannado-wce wireless arsenal."""
     ars = build_arsenal_showcase()
     lines = [
-        f"## wannado-wce v{ars['version']} Wireless Environment Arsenal "
-        f"({ars['total_blocks']} Blocks / {ars['total_standards']} Standards / {ars['total_ecosystem_tools']} JIT Tools)",
+        (
+            f"## wannado-wce v{ars['version']} Wireless Environment Arsenal "
+            f"({ars['total_blocks']} Blocks / {ars['total_standards']} Standards / {ars['total_ecosystem_tools']} JIT Tools)"
+        ),
         "",
         f"- **Classic Foundations ({len(ars['era_breakdown']['classic'])})**: `{'`, `'.join(ars['era_breakdown']['classic'])}`",
         f"- **Authoritative Standards ({len(ars['era_breakdown']['standard'])})**: `{'`, `'.join(ars['era_breakdown']['standard'])}`",

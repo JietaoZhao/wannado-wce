@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use wannado-wce in your research, please cite it using this metadata."
+title: "wannado-wce: Standards-Anchored, Just-In-Time Wireless Environment Platform"
+version: 1.1.1
+date-released: "2026-11-17"
+license: MIT
+repository-code: "https://github.com/JietaoZhao/wannado-wce"
+url: "https://github.com/JietaoZhao/wannado-wce"
+authors:
+  - alias: "JettZ"
+    name: "Jietao Zhao"
+keywords:
+  - wireless-communications
+  - 6g
+  - 3gpp-tr38901
+  - isac
+  - ris
+  - otfs
+  - near-field
+  - ai-native

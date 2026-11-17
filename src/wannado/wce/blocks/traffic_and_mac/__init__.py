@@ -7,7 +7,16 @@ from typing import Any
 from wannado.wce.blocks import BLOCK_EXPORTS, lazy_resolve
 
 _FAMILY_EXPORTS = {k: v for k, v in BLOCK_EXPORTS.items() if v[0].startswith("wannado.wce.blocks.traffic_and_mac.")}
-__all__ = sorted(_FAMILY_EXPORTS.keys())
+__all__ = [
+    "FTPTrafficConfig",
+    "MixedTrafficConfig",
+    "MultiCellMACConfig",
+    "XRTrafficConfig",
+    "provision_multicell_interference_mac",
+    "provision_traffic_ftp_models",
+    "provision_traffic_poisson_pareto_voip",
+    "provision_traffic_xr_immersive",
+]
 
 
 def __getattr__(name: str) -> Any:

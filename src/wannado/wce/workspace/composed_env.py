@@ -14,7 +14,6 @@ from wannado.wce.core.adapters import ChannelModuleAdapter, WirelessGymEnvAdapte
 from wannado.wce.core.geometry import nearfield_spherical_steering, upa_element_coordinates
 from wannado.wce.core.types import ProvisionResult
 from wannado.wce.core.units import (
-    coherence_time_sec,
     db_to_linear,
     dbm_to_watt,
     doppler_max_hz,
@@ -107,6 +106,7 @@ class ComposedWirelessEnv:
         d_max = max(d_min + 20.0, 250.0)
         self._dists_2d = self._rng.uniform(d_min, d_max, size=self.batch_size)
 
+        sf_db: float | np.ndarray
         if "uav_air_to_ground" in self._blocks:
             pl_db, sf_db = compute_uav_tr36777_pathloss("UMa-AV", self._dists_2d, 100.0, self.spec.carrier_fc_ghz, is_los=True)
         elif "v2x_vehicular_sl" in self._blocks:
@@ -122,7 +122,7 @@ class ComposedWirelessEnv:
         if self.spec.carrier_fc_ghz > 70.0 or "nearfield_xlmimo_thz" in self._blocks:
             pl_db = pl_db + itur_p676_path_absorption_db(self.spec.carrier_fc_ghz, self._dists_2d, water_vapor_g_m3=7.5)
 
-        self._pathloss_db = pl_db + self._rng.normal(0.0, sf_db * 0.5, size=self.batch_size)
+        self._pathloss_db = pl_db + self._rng.normal(0.0, sf_db, size=self.batch_size)
         self._large_scale_gain = np.asarray(db_to_linear(-self._pathloss_db), dtype=np.float64)
 
         # Initialize complex small-scale state (unit variance CN(0, 1))
@@ -149,7 +149,7 @@ class ComposedWirelessEnv:
         tm = self.spec.traffic_model.lower()
         if "xr" in tm:
             fps = 90.0 if "90" in tm else 60.0
-            period_slots = max(1, int(round((1.0 / fps) / self.slot_sec)))
+            period_slots = max(1, round((1.0 / fps) / self.slot_sec))
             if self._slot_idx % period_slots == 0:
                 mean_frame_bits = 1.5e7 / fps  # 15 Mbps stream -> ~250 kbit/frame
                 return self._rng.normal(mean_frame_bits, 0.1 * mean_frame_bits, size=self.batch_size).clip(min=1e4)
@@ -178,18 +178,20 @@ class ComposedWirelessEnv:
         # Layer 2: Array / Near-Field / RIS gain multiplier (enforcing conservation laws)
         ris_gain = np.ones(self.batch_size, dtype=np.float64)
         max_ris_mod = 1.0
+        active_ris_noise_w = 0.0
+        n_ris_el = max(8, int(self.spec.num_tx) * 4)
         if "star_ris" in self._blocks:
             # Energy splitting |beta_t|^2 + |beta_r|^2 = 1 -> passive half-space enhancement
-            n_el = 32
-            ris_gain *= 1.0 + 0.5 * 0.25 * n_el
-            max_ris_mod = 1.0
-        elif "passive_ris_cascade" in self._blocks:
-            n_el = 32
-            ris_gain *= 1.0 + 0.25 * n_el
+            ris_gain *= 1.0 + 0.5 * 0.25 * n_ris_el
             max_ris_mod = 1.0
         elif "active_ris_flexible" in self._blocks:
-            ris_gain *= 4.0
-            max_ris_mod = 2.0  # Active amplifier allowed (>1)
+            ris_amp_gain = 4.0
+            ris_gain *= ris_amp_gain
+            max_ris_mod = 2.0  # Active amplifier allowed (>1) with dynamic amplified thermal noise
+            active_ris_noise_w = (ris_amp_gain - 1.0) * 0.25 * self.noise_w
+        elif "passive_ris_cascade" in self._blocks:
+            ris_gain *= 1.0 + 0.25 * n_ris_el
+            max_ris_mod = 1.0
 
         if "nearfield_xlmimo_thz" in self._blocks:
             # Sample actual spherical steering vector norm verification
@@ -203,10 +205,24 @@ class ComposedWirelessEnv:
         if "isac_jsac_channel" in self._blocks:
             comm_frac = 0.6
             rx_w = raw_rx_w * comm_frac
-            sensing_snr = np.maximum(raw_rx_w * (1.0 - comm_frac) / max(self.noise_w, 1e-30), 1e-6)
+            total_sense_noise = np.maximum(self.noise_w + active_ris_noise_w, 1e-30)
+            sensing_snr = np.maximum(raw_rx_w * (1.0 - comm_frac) / total_sense_noise, 1e-6)
             c0 = 299792458.0
             bw = max(self.spec.bandwidth_hz, 1.0)
-            crb_range_m = float(np.median(c0 / (2.0 * math.pi * bw * np.sqrt(2.0 * sensing_snr))))
+            b_rms2 = (bw ** 2) / 12.0
+            round_trip_factor = 1.0 if "bistatic" in (self.spec.topology_type or "").lower() else 2.0
+            crb_range_m = float(
+                np.median(
+                    c0
+                    / (
+                        round_trip_factor
+                        * 2.0
+                        * math.sqrt(2.0)
+                        * math.pi
+                        * np.sqrt(np.maximum(b_rms2 * sensing_snr, 1e-12))
+                    )
+                )
+            )
         else:
             rx_w = raw_rx_w
             crb_range_m = None
@@ -215,7 +231,7 @@ class ComposedWirelessEnv:
         if "pls_covert_antijamming" in self._blocks:
             jam_w = float(np.median(rx_w)) * 0.25  # +25% adversarial interference floor (-6 dB JSR)
 
-        eff_snr_lin = rx_w / np.maximum(self.noise_w + jam_w, 1e-30)
+        eff_snr_lin = rx_w / np.maximum(self.noise_w + active_ris_noise_w + jam_w, 1e-30)
 
         if self.spec.csi_assumption == "ideal_genie_baseline":
             h_est = self._h_state.copy()
@@ -268,7 +284,7 @@ class ComposedWirelessEnv:
             max_ris_modulus=max_ris_mod,
             diagnostics={
                 "temporal_rho_target": self.temporal_rho,
-                "is_passive_ris": "passive_ris_cascade" in self._blocks or "star_ris" in self._blocks,
+                "is_passive_ris": ("passive_ris_cascade" in self._blocks or "star_ris" in self._blocks) and "active_ris_flexible" not in self._blocks,
                 "max_ris_modulus": max_ris_mod,
                 "has_future_csi_leakage": False,
                 "rayleigh_distance_m": self.rayleigh_zr,
@@ -327,7 +343,7 @@ class ComposedWirelessEnv:
             diagnostics={
                 "has_future_csi_leakage": False,
                 "lag1_autocorr_gap": lag_gap,
-                "is_passive_ris": "passive_ris_cascade" in self._blocks or "star_ris" in self._blocks,
+                "is_passive_ris": ("passive_ris_cascade" in self._blocks or "star_ris" in self._blocks) and "active_ris_flexible" not in self._blocks,
                 "max_ris_modulus": traj[-1].max_ris_modulus,
                 "min_tx_rx_distance_m": self.spec.min_tx_rx_distance_m,
                 "rayleigh_distance_m": self.rayleigh_zr,

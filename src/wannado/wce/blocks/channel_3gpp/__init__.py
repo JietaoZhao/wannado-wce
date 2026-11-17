@@ -7,7 +7,20 @@ from typing import Any
 from wannado.wce.blocks import BLOCK_EXPORTS, lazy_resolve
 
 _FAMILY_EXPORTS = {k: v for k, v in BLOCK_EXPORTS.items() if v[0].startswith("wannado.wce.blocks.channel_3gpp.")}
-__all__ = sorted(_FAMILY_EXPORTS.keys())
+__all__ = [
+    "CDLTDLConfig",
+    "NTNLEOConfig",
+    "TR38901InFConfig",
+    "TR38901MacroMicroConfig",
+    "UAVA2GConfig",
+    "V2XConfig",
+    "provision_ntn_leo_satellite",
+    "provision_tr38901_cdl_tdl",
+    "provision_tr38901_inf",
+    "provision_tr38901_uma_umi_rma",
+    "provision_uav_air_to_ground",
+    "provision_v2x_vehicular_sl",
+]
 
 
 def __getattr__(name: str) -> Any:

@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import math
 import time
 from dataclasses import asdict, dataclass
 from typing import Any

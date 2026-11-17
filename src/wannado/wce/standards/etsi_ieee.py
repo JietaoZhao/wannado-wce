@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import math
-
 import numpy as np
 
 # Major O2 (~60/118.75 GHz) and H2O (22.2/183.3/325.1/380/448/557/752 GHz) resonance peaks

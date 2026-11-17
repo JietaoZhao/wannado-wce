@@ -104,9 +104,13 @@ def provision_isac_jsac_channel(config: ISACConfig | None = None, **overrides: A
     rx_echo_w = (p_sense * gt_lin * gr_lin * (lam ** 2) * rcs_m2) / (((4.0 * math.pi) ** 3) * (d_tx_tgt ** 2) * (d_tgt_rx ** 2))
     sensing_snr_lin = rx_echo_w / max(noise_w, 1e-30)
 
-    # Range CRB approximation: var(r) >= c^2 / (8 * pi^2 * B_rms^2 * SNR_sense), with B_rms^2 = B^2 / 12
+    # Range CRB: var(tau) >= 1 / (8 * pi^2 * B_rms^2 * SNR_sense), with B_rms^2 = B^2 / 12
+    # Monostatic two-way round-trip tau = 2*R/c => sigma_R = (c / 2) * sigma_tau; bistatic uses factor 1.0.
     b_rms2 = (cfg.bandwidth_hz ** 2) / 12.0
-    range_crb_m = SPEED_OF_LIGHT_MPS / (2.0 * math.sqrt(2.0) * math.pi * math.sqrt(max(b_rms2 * sensing_snr_lin, 1e-12)))
+    round_trip_factor = 2.0 if cfg.topology == "monostatic" else 1.0
+    range_crb_m = SPEED_OF_LIGHT_MPS / (
+        round_trip_factor * 2.0 * math.sqrt(2.0) * math.pi * math.sqrt(max(b_rms2 * sensing_snr_lin, 1e-12))
+    )
 
     # Target Echo Channel H_target[B, Nr_s, Nt] + Background Clutter Channel H_bg[B, Nr_s, Nt]
     theta_t = (torch.rand(cfg.batch_size, device=dev) - 0.5) * 1.2

@@ -7,7 +7,18 @@ from typing import Any
 from wannado.wce.blocks import BLOCK_EXPORTS, lazy_resolve
 
 _FAMILY_EXPORTS = {k: v for k, v in BLOCK_EXPORTS.items() if v[0].startswith("wannado.wce.blocks.baselines.")}
-__all__ = sorted(_FAMILY_EXPORTS.keys())
+__all__ = [
+    "CKMRadioMapConfig",
+    "CSIEstimatorConfig",
+    "PFSchedulerConfig",
+    "WMMSEConfig",
+    "WaterFillingConfig",
+    "provision_ckm_radiomap_bridge",
+    "provision_ls_lmmse_csi",
+    "provision_proportional_fair",
+    "provision_water_filling",
+    "provision_wmmse_precoder",
+]
 
 
 def __getattr__(name: str) -> Any:

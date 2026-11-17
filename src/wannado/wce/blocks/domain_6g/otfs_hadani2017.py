@@ -84,7 +84,7 @@ def provision_otfs_delay_doppler(config: OTFSConfig | None = None, **overrides: 
     gains = complex_normal((cfg.batch_size, cfg.num_paths), variance=1.0 / max(1, cfg.num_paths), device=dev)
 
     b_idx = torch.arange(cfg.batch_size, device=dev).unsqueeze(-1)
-    h_dd[b_idx, delay_taps, doppler_shifts] += gains
+    h_dd.index_put_((b_idx, delay_taps, doppler_shifts), gains, accumulate=True)
 
     # ISFFT to Time-Frequency grid H_tf = FFT_M(IFFT_N(H_dd)) (scaled to preserve energy)
     h_tf = torch.fft.fft(torch.fft.ifft(h_dd, dim=-1, norm="ortho"), dim=-2, norm="ortho")

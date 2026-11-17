@@ -107,12 +107,12 @@ def _extract_readme_summary(root: Path) -> tuple[str, str]:
         para: list[str] = []
         for line in raw.splitlines():
             s = line.strip()
-            if not s or s.startswith("<") or s.startswith("![") or s.startswith("[!["):
+            if not s or s.startswith(("<", "![", "[![")):
                 continue
             if not title and s.startswith("#"):
                 title = s.lstrip("#").strip()
                 continue
-            if s.startswith("#") or s.startswith("---"):
+            if s.startswith(("#", "---")):
                 if para:
                     break
                 continue

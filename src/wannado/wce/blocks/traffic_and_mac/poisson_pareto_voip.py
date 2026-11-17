@@ -75,7 +75,7 @@ def provision_traffic_poisson_pareto_voip(config: MixedTrafficConfig | None = No
 
     if cfg.traffic_kind == "poisson":
         counts = rng.poisson(cfg.arrival_rate_hz * dt_sec, size=(cfg.num_slots, cfg.num_users))
-        arrivals = counts * cfg.fixed_packet_bytes
+        arrivals = (counts * cfg.fixed_packet_bytes).astype(np.float64)
     elif cfg.traffic_kind == "pareto":
         counts = rng.poisson(cfg.arrival_rate_hz * dt_sec, size=(cfg.num_slots, cfg.num_users))
         total_events = int(np.sum(counts))
@@ -93,8 +93,8 @@ def provision_traffic_poisson_pareto_voip(config: MixedTrafficConfig | None = No
         # 3GPP TR 36.814 On-Off Markov VoIP (VAF=0.5, 20 ms active 40B, 160 ms SID 15B)
         p_on_to_off = dt_sec / 1.0
         p_off_to_on = dt_sec / 1.0
-        active_step = max(1, int(round(20.0 / cfg.slot_duration_ms)))
-        sid_step = max(1, int(round(160.0 / cfg.slot_duration_ms)))
+        active_step = max(1, round(20.0 / cfg.slot_duration_ms))
+        sid_step = max(1, round(160.0 / cfg.slot_duration_ms))
         state = rng.uniform(0.0, 1.0, size=cfg.num_users) < 0.5
         for t in range(cfg.num_slots):
             flip_off = state & (rng.uniform(0.0, 1.0, size=cfg.num_users) < p_on_to_off)
@@ -120,7 +120,7 @@ def provision_traffic_poisson_pareto_voip(config: MixedTrafficConfig | None = No
             "offered_traffic_kbps": offered_kbps,
             "mean_burst_bytes": float(np.mean(nz)) if nz.size else 0.0,
             "p99_burst_bytes": float(np.percentile(nz, 99.0)) if nz.size else 0.0,
-            "heavy_tail_ratio_p99_over_mean": float(np.percentile(nz, 99.0) / max(np.mean(nz), 1e-9)) if nz.size else 1.0,
+            "heavy_tail_ratio_p99_over_mean": float(np.percentile(nz, 99.0)) / max(float(np.mean(nz)), 1e-9) if nz.size else 1.0,
         },
         diagnostics={"normalized_channel_power": 1.0},
         parameter_provenance=prov,

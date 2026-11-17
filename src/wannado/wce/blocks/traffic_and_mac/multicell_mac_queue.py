@@ -18,7 +18,6 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 import numpy as np
-import torch
 
 from wannado.wce.core.adapters import WirelessGymEnvAdapter
 from wannado.wce.core.geometry import wrap_around_distances_2d

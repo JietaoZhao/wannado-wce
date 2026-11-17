@@ -113,7 +113,7 @@ def provision_tr38901_inf(config: TR38901InFConfig | None = None, **overrides: A
             "p5_edge_snr_db": float(np.percentile(linear_to_db(snr_lin), 5.0)),
             "mean_channel_power": float(torch.mean(h_small.abs().pow(2)).item()),
         },
-        diagnostics={"device": str(dev), "normalized_channel_power": 1.0, "shadow_fading_std_db": sf_std},
+        diagnostics={"device": str(dev), "normalized_channel_power": 1.0, "shadow_fading_std_db": float(np.mean(sf_std))},
         parameter_provenance=prov,
         mechanisms_used=list(META.default_mechanisms),
         standard_ids_used=list(META.standard_ids),

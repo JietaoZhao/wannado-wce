@@ -9,7 +9,7 @@ from typing import Any
 
 import numpy as np
 import torch
-import torch.nn as nn
+from torch import nn
 
 
 class ChannelModuleAdapter(nn.Module):
@@ -62,7 +62,7 @@ class SimpleBoxSpace:
     low: np.ndarray
     high: np.ndarray
     shape: tuple[int, ...]
-    dtype: np.dtype = np.dtype(np.float32)
+    dtype: np.dtype[Any] = np.dtype(np.float32)  # noqa: RUF009
 
     def sample(self, rng: np.random.Generator | None = None) -> np.ndarray:
         gen = rng if rng is not None else np.random.default_rng()
@@ -77,7 +77,7 @@ class SimpleDiscreteSpace:
 
     n: int
     shape: tuple[int, ...] = ()
-    dtype: np.dtype = np.dtype(np.int64)
+    dtype: np.dtype[Any] = np.dtype(np.int64)  # noqa: RUF009
 
     def sample(self, rng: np.random.Generator | None = None) -> int:
         gen = rng if rng is not None else np.random.default_rng()
@@ -160,7 +160,7 @@ def export_dataset_npz(tensors: dict[str, Any], path: str | Path) -> Path:
         k: (v.detach().cpu().numpy() if isinstance(v, torch.Tensor) else np.asarray(v))
         for k, v in tensors.items()
     }
-    np.savez_compressed(out, **np_dict)
+    np.savez_compressed(str(out), **np_dict)  # type: ignore[arg-type]
     return out
 
 

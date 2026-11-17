@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import platform
 import shutil
 import subprocess
 import sys
@@ -10,10 +9,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-import torch
-
 from wannado.wce.standards.ecosystem import ECOSYSTEM_REGISTRY, probe_local_ecosystem
-
 
 DEEPMIMO_SCENARIO_CATALOG: dict[str, dict[str, Any]] = {
     "asu_campus_3p5": {"fc_ghz": 3.5, "est_disk_gb": 0.45, "summary": "Arizona State University 3.5 GHz outdoor campus ray-tracing (compact quick-start)."},
@@ -184,6 +180,11 @@ def check_tool_platform_readiness(
         warnings.append(
             f"Detected OS={os_name}, CUDA={cuda_ok}: Sionna RT GPU OptiX requires Linux+NVIDIA CUDA; "
             "it will fall back to slower CPU Mitsuba LLVM backend here."
+        )
+    if tool_id == "quadriga_lib" and (os_name == "Darwin" or sys.version_info >= (3, 13)):
+        warnings.append(
+            f"Detected OS={os_name}, Python={sys.version_info.major}.{sys.version_info.minor}: "
+            "`quadriga-lib` may lack prebuilt wheels on macOS / Python 3.13+ and trigger CMake/C++ source compilation (requires CMake & Xcode CLT)."
         )
 
     tool_meta = ECOSYSTEM_REGISTRY.get(tool_id)

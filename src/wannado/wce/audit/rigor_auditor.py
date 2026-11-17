@@ -99,14 +99,45 @@ def audit_wce_rigor(
             "comm_spectral_efficiency_bps_hz",
             "ckm_rmse_improvement_db",
             "mean_secrecy_rate_bps_hz",
+            "active_ris_effective_snr",
+            "gain_aligned_ris",
+            "mean_dd_energy",
+            "mean_farfield_match_corr",
+            "farfield_beam_alignment_efficiency",
+            "lmmse_nmse_db",
+            "outage_probability",
+            "device_activation_rate",
+            "mean_packet_satisfaction",
+            "offered_traffic_mbps",
+            "offered_traffic_kbps",
+            "coverage_probability",
+            "mean_frobenius_sq",
+            "csi_temporal_variance",
+            "empirical_amount_of_fading",
+            "los_power_fraction",
+            "autocorr_abs_error",
+            "nmse_db",
+            "range_rmse_crb_m",
+            "sensing_crb_range_m",
             "median_snr_db",
+            "p5_edge_snr_db",
             "mean_channel_power",
         ):
             if cand in seed_results[0].metrics:
                 metric_name = cand
                 break
         if not metric_name and seed_results[0].metrics:
-            metric_name = next(iter(seed_results[0].metrics.keys()))
+            static_constants = {
+                "aperture_m",
+                "max_doppler_hz",
+                "rayleigh_distance_m",
+                "is_in_nearfield",
+                "autograd_gradient_valid",
+                "num_tx",
+                "num_rx",
+            }
+            stochastic_keys = [k for k in seed_results[0].metrics if k not in static_constants]
+            metric_name = stochastic_keys[0] if stochastic_keys else next(iter(seed_results[0].metrics.keys()))
 
     vals = [float(r.metrics.get(metric_name, 0.0)) for r in seed_results]
     stats = aggregate_seed_stats(vals)

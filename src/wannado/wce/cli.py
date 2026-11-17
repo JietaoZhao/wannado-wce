@@ -343,11 +343,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(json.dumps(pf.to_dict(), indent=2, ensure_ascii=False) if args.as_json else pf.format_report())
             return 0 if pf.ok else 1
         iface_path = Path(args.interface_path).resolve()
-        spec = importlib.util.spec_from_file_location("_wannado_wce_user_iface", iface_path)
-        if spec is None or spec.loader is None:
+        mod_spec = importlib.util.spec_from_file_location("_wannado_wce_user_iface", iface_path)
+        if mod_spec is None or mod_spec.loader is None:
             raise FileNotFoundError(f"Cannot load interface module at {iface_path}")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
+        mod = importlib.util.module_from_spec(mod_spec)
+        mod_spec.loader.exec_module(mod)
         iface = mod.load_wireless_interface()
         reports = [preflight_wce(bid, wce_spec=iface.wce_spec) for bid in iface.blocks]
         if args.as_json:

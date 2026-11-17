@@ -20,7 +20,7 @@ import torch
 
 from wannado.wce.core.provenance import STANDARDS_PROVENANCE
 from wannado.wce.core.types import ParamProvenance, ProvisionResult, WCEMeta
-from wannado.wce.core.units import SPEED_OF_LIGHT_MPS, db_to_linear, linear_to_db
+from wannado.wce.core.units import SPEED_OF_LIGHT_MPS, db_to_linear
 from wannado.wce.core.utils import complex_normal, resolve_device, set_global_seed
 
 META = WCEMeta(

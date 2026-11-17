@@ -75,7 +75,7 @@ def provision_proportional_fair(config: PFSchedulerConfig | None = None, **overr
 
     # Heterogeneous user average SNRs (edge to cell center)
     user_snr_db = np.linspace(cfg.mean_snr_db - 0.5 * cfg.snr_spread_db, cfg.mean_snr_db + 0.5 * cfg.snr_spread_db, cfg.num_users)
-    user_snr_lin = db_to_linear(user_snr_db)
+    user_snr_lin = np.asarray(db_to_linear(user_snr_db), dtype=np.float64)
     fading = rng.exponential(1.0, size=(cfg.num_slots, cfg.num_users))
     inst_rates = np.log2(1.0 + fading * user_snr_lin[None, :])  # (T, K)
 

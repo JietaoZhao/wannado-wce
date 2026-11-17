@@ -89,7 +89,7 @@ def eject_block(
 
 
 def _interface_template(spec: WCESpec) -> str:
-    return f'''"""Isolated wireless environment provisioning boundary (`wce_lab/interface.py`).
+    return '''"""Isolated wireless environment provisioning boundary (`wce_lab/interface.py`).
 
 Loads Stage 0 `wce_spec.json` and exposes `load_wireless_interface()` plus forward-coupled
 `load_composed_env()` without modifying your downstream scripts, DRL trainers, or Adv testers.

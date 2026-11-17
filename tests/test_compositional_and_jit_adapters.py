@@ -92,7 +92,7 @@ class TestCompositionalAndJITAdapters(unittest.TestCase):
 
         gym_env = env.as_gym_env(max_steps=10)
         obs, _ = gym_env.reset(seed=0)
-        obs2, rew, term, trunc, _ = gym_env.step(1)
+        obs2, rew, term, _trunc, _ = gym_env.step(1)
         self.assertEqual(obs.shape, (4,))
         self.assertEqual(obs2.shape, (4,))
         self.assertTrue(np.isfinite(rew))

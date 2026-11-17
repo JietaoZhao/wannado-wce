@@ -17,7 +17,6 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
-import numpy as np
 import torch
 
 from wannado.wce.core.geometry import ula_farfield_steering

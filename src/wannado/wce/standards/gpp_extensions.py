@@ -147,9 +147,12 @@ def compute_v2x_tr37885_pathloss(
         pl_nlos = 36.85 + 30.0 * np.log10(d) + 18.9 * math.log10(fc)
         return np.maximum(pl_los, pl_nlos), 5.2
 
-    # Highway two-slope model with d_BP = 80 m
+    # Highway two-slope model with d_BP = 80 m (TR 37.885 Table 6.2.1-1)
     pl_los = 32.4 + 20.0 * np.log10(d) + 20.0 * math.log10(fc)
     pl_bp = np.where(d <= 80.0, pl_los, pl_los + 12.0 * np.log10(d / 80.0))
     if state == "NLOSv":
         return pl_bp + 15.0, 3.3
+    if state == "NLOS":
+        pl_nlos = np.maximum(pl_bp, 36.85 + 30.0 * np.log10(d) + 18.9 * math.log10(fc))
+        return pl_nlos, 5.2
     return pl_bp, 3.3

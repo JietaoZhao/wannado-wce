@@ -92,7 +92,7 @@ def provision_ckm_radiomap_bridge(config: CKMRadioMapConfig | None = None, **ove
 
     # Sparse noisy field measurements
     n_tot = g * g
-    n_obs = max(4, int(round(cfg.sample_fraction * n_tot)))
+    n_obs = max(4, round(cfg.sample_fraction * n_tot))
     obs_idx = rng.choice(n_tot, size=n_obs, replace=False)
     obs_mask = np.zeros(n_tot, dtype=bool)
     obs_mask[obs_idx] = True
@@ -109,9 +109,10 @@ def provision_ckm_radiomap_bridge(config: CKMRadioMapConfig | None = None, **ove
     res_obs = obs_vals - base_gain_db.reshape(-1)[obs_idx]
     ell = max(12.0, cfg.area_width_m / 8.0)
     d2 = np.sum((all_coords[:, None, :] - obs_coords[None, :, :]) ** 2, axis=-1)
-    w_rbf = np.exp(-d2 / (2.0 * ell * ell))
+    exponent = -d2 / (2.0 * ell * ell)
+    w_rbf = np.where(exponent > -28.0, np.exp(np.maximum(exponent, -28.0)), 0.0)
     w_sum = np.maximum(np.sum(w_rbf, axis=1), 1e-12)
-    res_pred = (w_rbf @ res_obs) / w_sum
+    res_pred = np.sum(w_rbf * res_obs[None, :], axis=1) / w_sum
     ckm_map = (base_gain_db.reshape(-1) + res_pred).reshape(g, g)
 
     # Conditional score/diffusion-inspired local smoothness + measurement consistency projection

@@ -481,8 +481,19 @@ def _resolve_block_runner(block_or_fn: str | Callable[..., ProvisionResult]) -> 
     return block_or_fn, getattr(mod, fn_name)
 
 
-def build_block_config(block_id: str, **overrides: Any) -> Any | None:
-    """Construct the dataclass Config for block_id applying matching overrides."""
+def _factor_tx_grid(num_tx: int) -> tuple[int, int]:
+    """Factor antenna count into balanced (tx_nx, tx_ny) UPA dimensions."""
+    n = max(1, int(num_tx))
+    import math as _math
+
+    for d in range(_math.isqrt(n), 0, -1):
+        if n % d == 0:
+            return n // d, d
+    return n, 1
+
+
+def build_block_config(block_id: str, wce_spec: WCESpec | None = None, **overrides: Any) -> Any | None:
+    """Construct the dataclass Config for block_id applying WCESpec fields and explicit overrides."""
     if block_id not in BLOCK_ID_TO_RUNNER:
         return None
     mod_path, _ = BLOCK_ID_TO_RUNNER[block_id]
@@ -491,12 +502,46 @@ def build_block_config(block_id: str, **overrides: Any) -> Any | None:
     if cfg_cls is None:
         return None
     valid_names = {f.name for f in fields(cfg_cls)}
-    filtered = {k: v for k, v in overrides.items() if k in valid_names and v is not None}
-    return cfg_cls(**filtered)
+    merged: dict[str, Any] = {}
+    if wce_spec is not None:
+        tx_nx, tx_ny = _factor_tx_grid(wce_spec.num_tx)
+        d_min = max(1.0, float(wce_spec.min_tx_rx_distance_m))
+        spec_map: dict[str, Any] = {
+            "fc_ghz": wce_spec.carrier_fc_ghz,
+            "carrier_fc_ghz": wce_spec.carrier_fc_ghz,
+            "bandwidth_hz": wce_spec.bandwidth_hz,
+            "numerology_mu": wce_spec.numerology_mu,
+            "subcarrier_spacing_khz": 15.0 * (2 ** int(wce_spec.numerology_mu)),
+            "tx_power_dbm": wce_spec.tx_power_dbm,
+            "noise_figure_db": wce_spec.noise_figure_db,
+            "num_tx": wce_spec.num_tx,
+            "num_rx": wce_spec.num_rx,
+            "num_bs_ant": wce_spec.num_tx,
+            "tx_nx": tx_nx,
+            "tx_ny": tx_ny,
+            "num_tx_x": wce_spec.num_tx,
+            "num_tx_y": 1,
+            "num_ris_elements": max(16, int(wce_spec.num_tx) * 4),
+            "num_star_elements": max(16, int(wce_spec.num_tx) * 4),
+            "user_distance_m": d_min,
+            "comm_user_distance_m": d_min,
+            "target_range_m": d_min,
+            "d_2d_min_m": min(d_min, 200.0),
+            "speed_mps": wce_spec.max_speed_mps,
+            "speed_kmh": wce_spec.max_speed_mps * 3.6,
+            "target_speed_mps": wce_spec.max_speed_mps,
+            "slot_duration_ms": wce_spec.slot_duration_ms,
+        }
+        merged.update({k: v for k, v in spec_map.items() if k in valid_names and v is not None})
+        if "d_2d_max_m" in valid_names and "d_2d_min_m" in merged:
+            default_cfg = cfg_cls()
+            merged["d_2d_max_m"] = max(float(getattr(default_cfg, "d_2d_max_m", 500.0)), float(merged["d_2d_min_m"]) + 50.0)
+    merged.update({k: v for k, v in overrides.items() if k in valid_names and v is not None})
+    return cfg_cls(**merged)
 
 
 def evaluate_wce_suite(
-    blocks: Sequence[str | Callable[..., ProvisionResult]],
+    blocks: Sequence[str | Callable[..., ProvisionResult]] | WCESpec,
     *,
     wce_spec: WCESpec | None = None,
     seeds: Sequence[int] = (0, 1, 2),
@@ -506,36 +551,49 @@ def evaluate_wce_suite(
     imt2030_scenario: str | None = None,
     run_preflight: bool = True,
     run_audit: bool = True,
+    min_seeds: int = 3,
     device: str = "auto",
 ) -> WCEReport:
     """Execute Stage 1 Preflight -> Multi-Seed Provisioning -> Stage 3 Physics Audit -> Stage 4 Provenance Report."""
     cards_by_id = {c["id"]: c for c in load_catalog()}
+    if isinstance(blocks, WCESpec):
+        wce_spec = wce_spec or blocks
+        resolved_blocks: list[str | Callable[..., ProvisionResult]] = list(wce_spec.blocks_selected)
+        resolved_baselines = list(baseline_blocks) if baseline_blocks else list(wce_spec.baseline_blocks)
+    else:
+        resolved_blocks = list(blocks)
+        resolved_baselines = (
+            list(baseline_blocks)
+            if baseline_blocks
+            else (list(wce_spec.baseline_blocks) if wce_spec is not None else [])
+        )
+
     eff_task = task_name or (wce_spec.problem_name if wce_spec is not None else "WirelessProvisioningBenchmark")
     eff_scen = imt2030_scenario or (wce_spec.imt2030_scenario if wce_spec is not None else "IC")
+
+    eval_items: list[str | Callable[..., ProvisionResult]] = []
+    seen_ids: set[str] = set()
+    for item in [*resolved_blocks, *resolved_baselines]:
+        bid_key = item if isinstance(item, str) else getattr(item, "__name__", "custom_block").removeprefix("provision_")
+        if bid_key not in seen_ids:
+            eval_items.append(item)
+            seen_ids.add(bid_key)
 
     preflights: dict[str, PreflightReport] = {}
     summaries: list[BlockExperimentSummary] = []
     distributions: dict[str, list[float]] = {}
-    has_baseline = bool(baseline_blocks) or any(
+    has_baseline = bool(resolved_baselines) or any(
         (cards_by_id.get(b, {}).get("family") == "baselines" or cards_by_id.get(b, {}).get("era") == "classic")
-        for b in blocks
+        for b in eval_items
         if isinstance(b, str)
     )
 
-    for item in blocks:
+    for item in eval_items:
         bid, fn = _resolve_block_runner(item)
         card = cards_by_id.get(bid, {})
         cfg_obj = (block_configs or {}).get(bid)
         if cfg_obj is None and wce_spec is not None:
-            cfg_obj = build_block_config(
-                bid,
-                fc_ghz=wce_spec.carrier_fc_ghz,
-                bandwidth_hz=wce_spec.bandwidth_hz,
-                numerology_mu=wce_spec.numerology_mu,
-                tx_power_dbm=wce_spec.tx_power_dbm,
-                noise_figure_db=wce_spec.noise_figure_db,
-                device=device,
-            )
+            cfg_obj = build_block_config(bid, wce_spec=wce_spec, device=device)
 
         if run_preflight:
             preflights[bid] = preflight_wce(fn, config=cfg_obj, wce_spec=wce_spec, seed=int(seeds[0]))
@@ -554,7 +612,7 @@ def evaluate_wce_suite(
                 seed_runs,
                 wce_spec=wce_spec,
                 has_classic_baseline=has_baseline,
-                min_seeds=min(3, max(1, len(seeds))),
+                min_seeds=min_seeds,
             )
             if run_audit
             else None

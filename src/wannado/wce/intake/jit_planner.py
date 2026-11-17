@@ -6,7 +6,12 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from wannado.wce.intake.spec import WCESpec
-from wannado.wce.standards.ecosystem import ECOSYSTEM_REGISTRY, EcosystemTool, probe_local_ecosystem, recommend_ecosystem_tools
+from wannado.wce.standards.ecosystem import (
+    ECOSYSTEM_REGISTRY,
+    EcosystemTool,
+    probe_local_ecosystem,
+    recommend_ecosystem_tools,
+)
 from wannado.wce.standards.jit_recipes import (
     DEEPMIMO_SCENARIO_CATALOG,
     JIT_RECIPES,
@@ -91,7 +96,6 @@ def build_jit_plan(
 
     py_inst = probe.get("installed_python_tools", {})
     os_name = probe.get("os", "")
-    cuda_ok = bool(probe.get("cuda_available", False))
 
     readiness_reports: list[dict[str, Any]] = []
     has_deepmimo = False

@@ -370,10 +370,14 @@ def compose_wce_spec(
     if any(k in q for k in ("star-ris", "star_ris", "starris", "全空间超表面", "透反射")):
         ant_blocks.append("star_ris")
         ant_reasons.append("STAR-RIS energy-splitting reflection+transmission")
-    if any(k in q for k in ("active ris", "active-ris", "有源超表面", "fluid antenna", "fas", "pinching", "pass", "流体天线", "夹断")):
+    if any(k in q for k in ("active ris", "active-ris", "有源超表面", "fluid antenna", "pinching", "流体天线", "夹断")) or re.search(
+        r"\b(?:fas|pass)\b", q
+    ):
         ant_blocks.append("active_ris_flexible")
         ant_reasons.append("Active RIS / FAS / PASS beyond-passive array")
-    if any(k in q for k in ("ris", "irs", "reconfigurable", "超表面", "反射面")) and "star_ris" not in ant_blocks:
+    if (re.search(r"\b(?:ris|irs)\b", q) or any(k in q for k in ("reconfigurable", "超表面", "反射面"))) and not any(
+        b in ant_blocks for b in ("star_ris", "active_ris_flexible")
+    ):
         ant_blocks.append("passive_ris_cascade")
         ant_reasons.append("ETSI GR RIS 003 unit-modulus passive RIS cascade")
     if any(k in q for k in ("near-field", "nearfield", "xl-mimo", "elaa", "thz", "terahertz", "近场", "太赫兹")):
@@ -634,7 +638,16 @@ def update_wce_spec_with_diff(
 
     triggered_rules: list[str] = []
     alerts = _sync_provenance_and_physics(after, triggered_rules=triggered_rules, auto_scale_aperture=("aperture_m" not in patch))
-    for sync_k in ("aperture_m", "numerology_mu", "slot_duration_ms"):
+    if "carrier_fc_ghz" in changed and re.search(r"\b\d+(?:\.\d+)?\s*ghz\b", after.problem_name, flags=re.IGNORECASE):
+        after.problem_name = re.sub(
+            r"\b\d+(?:\.\d+)?\s*ghz\b",
+            f"{after.carrier_fc_ghz:g} GHz",
+            after.problem_name,
+            flags=re.IGNORECASE,
+        )
+    if after.problem_name == f"Composed_{before.imt2030_scenario}_Wireless_Env" and after.imt2030_scenario != before.imt2030_scenario:
+        after.problem_name = f"Composed_{after.imt2030_scenario}_Wireless_Env"
+    for sync_k in ("aperture_m", "numerology_mu", "slot_duration_ms", "problem_name"):
         if getattr(after, sync_k) != getattr(before, sync_k):
             changed[sync_k] = {"before": getattr(before, sync_k), "after": getattr(after, sync_k)}
 

@@ -77,7 +77,7 @@ def provision_traffic_ftp_models(config: FTPTrafficConfig | None = None, **overr
     if cfg.model in ("ftp_model_1", "ftp_model_3"):
         lam_slot = cfg.arrival_rate_hz * dt_sec
         counts = rng.poisson(lam_slot, size=(cfg.num_slots, cfg.num_users))
-        arrivals = counts * f_bytes
+        arrivals = (counts * f_bytes).astype(np.float64)
     else:
         # FTP Model 2: burst arrival followed by exponential reading time D
         for u in range(cfg.num_users):

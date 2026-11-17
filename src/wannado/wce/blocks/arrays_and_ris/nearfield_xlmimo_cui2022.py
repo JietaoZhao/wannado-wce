@@ -16,13 +16,12 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Any
 
-import numpy as np
 import torch
 
-from wannado.wce.core.geometry import nearfield_spherical_steering, upa_element_coordinates, upa_farfield_steering
+from wannado.wce.core.geometry import nearfield_spherical_steering, upa_element_coordinates
 from wannado.wce.core.provenance import MECHANISM_PROVENANCE
 from wannado.wce.core.types import ParamProvenance, ProvisionResult, WCEMeta
-from wannado.wce.core.units import db_to_linear, effective_rayleigh_distance_m, rayleigh_distance_m, wavelength_m
+from wannado.wce.core.units import effective_rayleigh_distance_m, rayleigh_distance_m, wavelength_m
 from wannado.wce.core.utils import complex_normal, resolve_device, set_global_seed
 from wannado.wce.standards.etsi_ieee import itur_p676_attenuation_db_per_km, itur_p676_path_absorption_db
 

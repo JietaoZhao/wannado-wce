@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import math
 import time
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -62,7 +61,7 @@ class WaterFillingConfig:
 
 def _solve_water_filling_batch(gains: np.ndarray, total_power: float) -> np.ndarray:
     """Solve KKT water-filling for each row in gains (B, K) with sum_k p_k = total_power."""
-    b, k = gains.shape
+    b = gains.shape[0]
     inv_g = 1.0 / np.maximum(gains, 1e-12)
     alloc = np.zeros_like(gains)
     for i in range(b):

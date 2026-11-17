@@ -16,7 +16,6 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Any
 
-import numpy as np
 import torch
 
 from wannado.wce.core.provenance import MECHANISM_PROVENANCE
