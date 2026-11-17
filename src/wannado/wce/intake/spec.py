@@ -139,7 +139,16 @@ class WCESpec:
     def format_system_parameter_table_tex(self) -> str:
         """Render publication-ready LaTeX booktabs Table I: System Simulation Parameters with per-row \\cite{...}."""
         def _esc(val: Any) -> str:
-            return str(val).replace("&", "\\&").replace("_", "\\_").replace("%", "\\%")
+            return (
+                str(val)
+                .replace("&", "\\&")
+                .replace("%", "\\%")
+                .replace("$", "\\$")
+                .replace("#", "\\#")
+                .replace("_", "\\_")
+                .replace("^", "\\^{}")
+                .replace("~", "\\~{}")
+            )
 
         lines = [
             "% Requires \\usepackage{booktabs}",
@@ -153,7 +162,12 @@ class WCESpec:
             "    \\midrule",
         ]
         for p in self.parameter_provenance:
-            val_unit = f"{_esc(p.value)} {_esc(p.unit)}" if p.unit and p.unit not in ("enum", "dimensionless") else _esc(p.value)
+            val_s = str(p.value).strip()
+            unit_s = str(p.unit).strip() if p.unit is not None else ""
+            if not unit_s or unit_s in ("enum", "dimensionless", "block") or unit_s.lower() in val_s.lower():
+                val_unit = _esc(val_s)
+            else:
+                val_unit = f"{_esc(val_s)} {_esc(unit_s)}"
             auth = f"{_esc(p.authority_id)} ({_esc(p.authority_section)})"
             cit = f"\\cite{{{p.citation_key}}}" if p.citation_key else "--"
             lines.append(f"    {_esc(p.plain_meaning)} & {val_unit} & {auth} & {cit} \\\\")

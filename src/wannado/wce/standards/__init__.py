@@ -11,6 +11,7 @@ from wannado.wce.standards.etsi_ieee import (
     FTP_TRAFFIC_SPECS,
     VOIP_TRAFFIC_SPEC,
     XR_TRAFFIC_SPEC,
+    itur_p618_rain_attenuation_db,
     itur_p676_attenuation_db_per_km,
     itur_p676_path_absorption_db,
 )
@@ -78,6 +79,7 @@ __all__ = [
     "get_jit_recipe",
     "get_nr_numerology",
     "interpolate_ntn_params",
+    "itur_p618_rain_attenuation_db",
     "itur_p676_attenuation_db_per_km",
     "itur_p676_path_absorption_db",
     "match_imt2030_scenario",

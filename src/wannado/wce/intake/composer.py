@@ -255,8 +255,8 @@ def _sync_provenance_and_physics(spec: WCESpec, *, triggered_rules: list[str], a
         _prov("carrier_fc_ghz", round(spec.carrier_fc_ghz, 3), "GHz", "Carrier frequency", band_auth, band_sec, band_why),
         _prov(
             "bandwidth_hz",
-            f"{spec.bandwidth_hz / 1e6:.2f} MHz",
-            "Hz",
+            round(spec.bandwidth_hz / 1e6, 2),
+            "MHz",
             "Allocated RF system bandwidth",
             "gpp_ts38211",
             "Clause 4.2",
@@ -338,15 +338,19 @@ def compose_wce_spec(
     # --- Slot 1: Propagation & Topology ---
     prop_blocks: list[str] = []
     prop_reasons: list[str] = []
-    if any(k in q for k in ("uav", "drone", "aerial", "drone-assisted", "空地", "无人机")):
+    if any(k in q for k in ("uav", "drone", "aerial", "drone-assisted", "uav_gis", "空地", "无人机")):
         prop_blocks.append("uav_air_to_ground")
         prop_reasons.append("TR 36.777 / Al-Hourani aerial altitude LoS geometry")
-    if any(k in q for k in ("leo", "ntn", "satellite", "卫星", "星地", "非地面")):
+    if any(k in q for k in ("leo", "ntn", "satellite", "starlink", "oneweb", "kuiper", "卫星", "星地", "非地面")):
         prop_blocks.append("ntn_leo_satellite")
         prop_reasons.append("TR 38.811/38.821 LEO elevation slant channel")
-    if any(k in q for k in ("v2x", "v2v", "v2i", "highway", "sidelink", "车联网", "车载")):
+    if any(k in q for k in ("v2x", "v2v", "v2i", "v2v_control", "platooning", "autonomous driving", "highway", "sidelink", "车联网", "车载")):
         prop_blocks.append("v2x_vehicular_sl")
         prop_reasons.append("TR 37.885 V2X urban/highway + NLOSv shadowing")
+    if any(k in q for k in ("rain", "p.618", "p618", "rainfall", "weather")):
+        triggered_rules.append("itu_p618_rain_attenuation")
+    if any(k in q for k in ("lora", "lorawan", "lpwan", "sub-ghz")):
+        triggered_rules.append("lpwan_subghz_lora")
     if any(k in q for k in ("factory", "industrial", "inf-", "工厂", "工业")):
         prop_blocks.append("tr38901_inf")
         prop_reasons.append("TR 38.901 Indoor Factory metallic clutter profile")
@@ -399,22 +403,22 @@ def compose_wce_spec(
     if any(k in q for k in ("otfs", "delay-doppler", "high speed", "高速", "高铁")):
         feat_blocks.append("otfs_delay_doppler")
         feat_reasons.append("2D Delay-Doppler OTFS modulation channel")
-    if any(k in q for k in ("urllc", "hrllc", "fbl", "finite blocklength", "short packet", "短包", "超低时延", "高可靠")):
+    if any(k in q for k in ("urllc", "hrllc", "fbl", "finite blocklength", "short packet", "v2v_control", "uav_gis", "autonomous driving", "短包", "超低时延", "高可靠")):
         feat_blocks.append("hrllc_fbl_urllc")
         feat_reasons.append("Polyanskiy FBL dispersion short-packet bound")
-    if any(k in q for k in ("ambient", "backscatter", "a-iot", "反向散射", "零功耗")):
+    if any(k in q for k in ("ambient", "backscatter", "a-iot", "lora", "lorawan", "lpwan", "反向散射", "零功耗")):
         feat_blocks.append("ambient_iot_backscatter")
-    if any(k in q for k in ("semantic", "deepsc", "aircomp", "over-the-air", "语义", "空中计算")):
+    if any(k in q for k in ("semantic", "deepsc", "aircomp", "over-the-air", "federated", "federated_edge", "语义", "空中计算", "联邦学习")):
         feat_blocks.append("semantic_aircomp_channel")
-        feat_reasons.append("Differentiable DeepSC / AirComp edge AI channel")
+        feat_reasons.append("Differentiable DeepSC / AirComp / Federated Edge AI channel")
     if any(k in q for k in ("jam", "jsr", "secrecy", "wiretap", "covert", "pls", "抗干扰", "窃听", "隐蔽", "物理层安全")):
         feat_blocks.append("pls_covert_antijamming")
         feat_reasons.append("Wyner secrecy / Bash covert KL / JSR-dB jamming")
 
-    if any(k in q for k in ("xr", "vr", "ar", "fps", "immersive", "沉浸式", "38.838", "pdb")):
+    if re.search(r"\b(?:xr|vr|ar)\b", q) or any(k in q for k in ("fps", "immersive", "沉浸式", "38.838", "pdb")):
         feat_blocks.append("traffic_xr_immersive")
         feat_reasons.append("3GPP TR 38.838 bursty XR traffic & PDB evaluation")
-    if any(k in q for k in ("multi-cell", "multicell", "schedul", "queue", "mac", "drl", "资源分配", "多小区", "队列")):
+    if any(k in q for k in ("multi-cell", "multicell", "schedul", "queue", "mac", "drl", "federated", "federated_edge", "资源分配", "多小区", "队列")):
         feat_blocks.append("multicell_interference_mac")
         feat_reasons.append("Wrap-around multi-cell interference + queue Gym loop")
     if any(k in q for k in ("ftp", "bursty", "文件到达")):
@@ -426,6 +430,8 @@ def compose_wce_spec(
     # --- Physical Defaults + Extracted Numeric Overrides ---
     if "carrier_fc_ghz" in nums:
         fc_ghz = float(nums["carrier_fc_ghz"])
+    elif "lpwan_subghz_lora" in triggered_rules:
+        fc_ghz = 0.915
     elif "nearfield_xlmimo_thz" in ant_blocks:
         fc_ghz = 100.0
     elif "isac_jsac_channel" in feat_blocks or any(k in q for k in ("mmwave", "fr2", "毫米波")):
@@ -439,6 +445,8 @@ def compose_wce_spec(
 
     if "bandwidth_hz" in nums:
         bw_hz = float(nums["bandwidth_hz"])
+    elif "lpwan_subghz_lora" in triggered_rules:
+        bw_hz = 125e3
     elif fc_ghz >= 70.0:
         bw_hz = 1e9
     elif fc_ghz >= 24.0:

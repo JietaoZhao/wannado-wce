@@ -61,7 +61,7 @@ def build_wce_archetype(archetype: str = "imt2030_immersive_xr", *, problem_name
             standard_ids=["itur_m2160", "gpp_tr22837", "gpp_tr38901_isac", "gpp_ts38211"],
             parameter_provenance=[
                 _p("carrier_fc_ghz", 28.0, "GHz", "FR2 mmWave carrier frequency", "gpp_tr38901_isac", "Rel-19 ISAC", "3gpp_tr38901_isac_rel19", "Provides wide 100 MHz bandwidth and angular resolution for sensing."),
-                _p("bandwidth_hz", "100 MHz", "Hz", "ISAC RF bandwidth", "gpp_tr22837", "Clause 5", "3gpp_tr22837", "Controls sensing range resolution c/(2B) = 1.5 m and thermal noise floor."),
+                _p("bandwidth_hz", 100, "MHz", "ISAC RF bandwidth", "gpp_tr22837", "Clause 5", "3gpp_tr22837", "Controls sensing range resolution c/(2B) = 1.5 m and thermal noise floor."),
                 _p("numerology_mu", 3, "enum", "NR FR2 SCS=120 kHz, slot=0.125 ms", "gpp_ts38211", "Clause 4.2", "3gpp_ts38211", "Standardized FR2 mmWave numerology avoiding excessive phase noise / ICI."),
                 _p("target_rcs_dbsm", 0.0, "dBsm", "Target Radar Cross Section", "liu_isac_crb", "IEEE JSAC 2022", "liu2022integrated", "Canonical pedestrian/drone-scale RCS benchmark."),
                 _p("csi_assumption", "realistic_estimated", "enum", "Noisy/causal CSI feedback", "gpp_tr38843", "Clause 5", "3gpp_tr38843", "Prevents genie-aided sensing/beamforming leakage."),
@@ -334,6 +334,95 @@ def build_wce_archetype(archetype: str = "imt2030_immersive_xr", *, problem_name
             ],
         )
 
+    if key == "uav_gis":
+        return WCESpec(
+            problem_name=problem_name or "UAV_Aerial_GIS_Telemetry",
+            archetype=key,
+            imt2030_scenario="UC",
+            goal_plain="3GPP TR 36.777 aerial UAV telemetry & GIS swarm delivery channel with altitude-dependent LoS probability and short-packet reliability.",
+            carrier_fc_ghz=2.4,
+            bandwidth_hz=20e6,
+            numerology_mu=1,
+            tx_power_dbm=30.0,
+            noise_figure_db=7.0,
+            num_tx=4,
+            num_rx=2,
+            aperture_m=0.19,
+            min_tx_rx_distance_m=30.0,
+            max_speed_mps=18.0,
+            slot_duration_ms=0.5,
+            csi_assumption="realistic_estimated",
+            traffic_model="ftp_model_3",
+            topology_type="UMa-AV",
+            blocks_selected=["uav_air_to_ground", "farfield_upa", "hrllc_fbl_urllc"],
+            baseline_blocks=["awgn_link", "water_filling"],
+            export_targets=["pytorch_complex", "gym_env", "wannado_drl", "markdown_report"],
+            standard_ids=["itur_m2160", "gpp_tr36777", "gpp_ts38211"],
+            parameter_provenance=[
+                _p("carrier_fc_ghz", 2.4, "GHz", "ISM/UAV command & GIS telemetry band", "gpp_tr36777", "Clause 4", "3gpp_tr36777", "Long-range UAV A2G link budget."),
+                _p("bandwidth_hz", 20, "MHz", "UAV telemetry channel bandwidth", "gpp_ts38211", "Clause 4.2", "3gpp_ts38211", "Governs thermal floor and airtime latency."),
+            ],
+        )
+
+    if key == "federated_edge":
+        return WCESpec(
+            problem_name=problem_name or "Federated_AI_Edge_Wireless_FL",
+            archetype=key,
+            imt2030_scenario="AIAC",
+            goal_plain="Federated Learning / distributed gradient aggregation over realistic 5G/6G fading, straggler deadlines, and causal CSI.",
+            carrier_fc_ghz=3.5,
+            bandwidth_hz=20e6,
+            numerology_mu=1,
+            tx_power_dbm=23.0,
+            noise_figure_db=7.0,
+            num_tx=8,
+            num_rx=2,
+            aperture_m=0.30,
+            min_tx_rx_distance_m=20.0,
+            max_speed_mps=3.0,
+            slot_duration_ms=0.5,
+            csi_assumption="realistic_estimated",
+            traffic_model="ftp_model_3",
+            topology_type="UMa_FL",
+            blocks_selected=["tr38901_uma_umi_rma", "semantic_aircomp_channel", "multicell_interference_mac"],
+            baseline_blocks=["ls_lmmse_csi", "wmmse_precoder", "proportional_fair"],
+            standard_ids=["itur_m2160", "gpp_tr38901", "gpp_ts38211"],
+            parameter_provenance=[
+                _p("carrier_fc_ghz", 3.5, "GHz", "Mid-band edge AI aggregation carrier", "gpp_tr38901", "Table 7.4.1-1", "3gpp_tr38901", "Standard urban macro FL uplink spectrum."),
+                _p("tx_power_dbm", 23.0, "dBm", "Edge UE transmit power budget", "gpp_ts38211", "UE Class 3", "3gpp_ts38211", "Determines client upload duration and straggler dropout."),
+            ],
+        )
+
+    if key == "v2v_control":
+        return WCESpec(
+            problem_name=problem_name or "Autonomous_V2V_Platooning_Control",
+            archetype=key,
+            imt2030_scenario="HRLLC",
+            goal_plain="High-mobility 5.9 GHz V2V sidelink control channel with TR 37.885 shadowing, Polyanskiy FBL latency/error bounds, and Doppler OTFS.",
+            carrier_fc_ghz=5.9,
+            bandwidth_hz=20e6,
+            numerology_mu=2,
+            tx_power_dbm=23.0,
+            noise_figure_db=9.0,
+            num_tx=4,
+            num_rx=4,
+            aperture_m=0.08,
+            min_tx_rx_distance_m=15.0,
+            max_speed_mps=33.3,
+            slot_duration_ms=0.25,
+            csi_assumption="realistic_estimated",
+            traffic_model="ftp_model_3",
+            topology_type="Highway_V2V",
+            blocks_selected=["v2x_vehicular_sl", "hrllc_fbl_urllc", "otfs_delay_doppler"],
+            baseline_blocks=["awgn_link", "ls_lmmse_csi"],
+            export_targets=["pytorch_complex", "gym_env", "wannado_drl", "markdown_report"],
+            standard_ids=["itur_m2160", "gpp_tr37885", "gpp_ts38211"],
+            parameter_provenance=[
+                _p("carrier_fc_ghz", 5.9, "GHz", "ITS C-V2X sidelink spectrum", "gpp_tr37885", "Section 6", "3gpp_tr37885", "Dedicated safety-critical autonomous driving band."),
+                _p("max_speed_mps", 33.3, "m/s", "Highway relative platoon speed (~120 km/h)", "gpp_tr37885", "Section 6.1", "3gpp_tr37885", "Governs Doppler shift and mu=2 short slot selection."),
+            ],
+        )
+
     # Default: imt2030_immersive_xr
     return WCESpec(
         problem_name=problem_name or "IMT2030_Immersive_XR_5G6G",
@@ -388,6 +477,16 @@ def audit_wce_spec(spec: WCESpec) -> SpecAuditReport:
         errors.append("carrier_fc_ghz must be strictly positive.")
     if spec.bandwidth_hz <= 0.0:
         errors.append("bandwidth_hz must be strictly positive.")
+    if spec.min_tx_rx_distance_m <= 0.0:
+        errors.append("min_tx_rx_distance_m must be strictly positive (> 0 m).")
+    if spec.num_tx < 1 or spec.num_rx < 1:
+        errors.append(f"num_tx ({spec.num_tx}) and num_rx ({spec.num_rx}) must both be >= 1.")
+    if spec.numerology_mu not in (0, 1, 2, 3, 4):
+        errors.append(f"numerology_mu must be in {{0, 1, 2, 3, 4}}, got {spec.numerology_mu}.")
+    if spec.noise_figure_db < 0.0:
+        warnings.append(f"noise_figure_db={spec.noise_figure_db} dB < 0 is non-physical for passive receivers.")
+    if spec.tx_power_dbm < -30.0 or (spec.tx_power_dbm > 80.0 and "ntn_leo_satellite" not in spec.blocks_selected):
+        warnings.append(f"Extreme tx_power_dbm={spec.tx_power_dbm} dBm for terrestrial deployment; verify units (dBm vs dBW).")
     if not spec.blocks_selected:
         errors.append("blocks_selected cannot be empty.")
     if not spec.parameter_provenance:

@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use wannado-wce in your research, please cite it using this metadata."
 title: "wannado-wce: Standards-Anchored, Just-In-Time Wireless Environment Platform"
-version: 1.1.1
+version: 1.1.2
 date-released: "2026-11-17"
 license: MIT
 repository-code: "https://github.com/JietaoZhao/wannado-wce"

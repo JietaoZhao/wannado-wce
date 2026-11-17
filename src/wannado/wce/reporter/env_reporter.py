@@ -328,13 +328,22 @@ class WCEReport:
 
     def to_results_latex(self) -> str:
         def _esc(val: Any) -> str:
-            return str(val).replace("&", "\\&").replace("_", "\\_").replace("%", "\\%")
+            return (
+                str(val)
+                .replace("&", "\\&")
+                .replace("%", "\\%")
+                .replace("$", "\\$")
+                .replace("#", "\\#")
+                .replace("_", "\\_")
+                .replace("^", "\\^{}")
+                .replace("~", "\\~{}")
+            )
 
         lines = [
             "% Requires \\usepackage{booktabs}",
             "\\begin{table}[t]",
             "  \\centering",
-            f"  \\caption{{Multi-Seed Wireless Environment Benchmark & Rigor Audit on {_esc(self.task_name)} ({len(self.seeds)} seeds).}}",
+            f"  \\caption{{Multi-Seed Wireless Environment Benchmark \\& Rigor Audit on {_esc(self.task_name)} ({len(self.seeds)} seeds).}}",
             "  \\label{tab:wannado_wce_results}",
             "  \\begin{tabular}{lllccc}",
             "    \\toprule",
@@ -555,6 +564,9 @@ def evaluate_wce_suite(
     device: str = "auto",
 ) -> WCEReport:
     """Execute Stage 1 Preflight -> Multi-Seed Provisioning -> Stage 3 Physics Audit -> Stage 4 Provenance Report."""
+    seeds_tuple = tuple(int(s) for s in seeds)
+    if not seeds_tuple:
+        raise ValueError("seeds must contain at least one integer seed.")
     cards_by_id = {c["id"]: c for c in load_catalog()}
     if isinstance(blocks, WCESpec):
         wce_spec = wce_spec or blocks

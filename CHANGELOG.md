@@ -2,6 +2,21 @@
 
 All notable changes to `wannado-wce` will be documented in this file.
 
+## [1.1.2] - 2026-11-17
+
+### Added
+- **Non-telecom cross-domain bridge primitives (`workspace/cross_domain.py`, `standards/etsi_ieee.py`)**:
+  - Added `itur_p618_rain_attenuation_db` (ITU-R P.838-3 + P.618/P.530 weather fade attenuation) with integrated `rain_rate_mm_hr` support inside `ComposedWirelessEnv`.
+  - Added `FederatedWirelessRoundModel` & `simulate_federated_round` for Federated Learning / distributed AI synchronous round straggler & uplink energy modeling.
+  - Added `AutonomousLinkDelayModel` & `evaluate_link_delivery` for robotics, UAV GIS, and autonomous vehicle V2V 3D position-to-latency/BLER closed-loop checks.
+  - Added presets `uav_gis`, `federated_edge`, and `v2v_control` to `build_wce_archetype()` + keyword routing in `compose_wce_spec()`.
+- **Live runtime controls in `ComposedWirelessEnv.step()`**: Added causal action execution (`action=0/1/2` or continuous scalars affecting TX power boost, RIS alignment multiplier, and power cost penalty in `as_gym_env()`) and runtime overrides (`distances_m`, `tx_pos_3d`, `rx_pos_3d`, `positions_3d`, `packet_bits`, `ris_scale`, `power_scale`, `rain_rate_mm_hr`).
+
+### Fixed
+- **Composer substring misrouting (`intake/composer.py`)**: Replaced bare `"ar"` substring check with word-boundary regex `r"\b(?:xr|vr|ar)\b"` so `"federated learning"`, `"Starlink"`, `"radar"`, and `"lidar"` never misroute to `traffic_xr_immersive`; added `"starlink"` and `"lora"`/`"lorawan"` frequency/bandwidth recognition.
+- **Stage 0 & reporter validation**: Tightened `audit_wce_spec()` checks for `min_tx_rx_distance_m <= 0`, invalid `num_tx`/`num_rx`/`numerology_mu`, negative `noise_figure_db`, and extreme terrestrial `tx_power_dbm`; rejected empty `seeds` in `evaluate_wce_suite()`.
+- **LaTeX double-unit & escaping fixes (`intake/spec.py`, `reporter/env_reporter.py`)**: Fixed `"100.00 MHz Hz"` double-unit outputs in Table I (`archetypes.py`, `composer.py`, `spec.py`), escaped `&` in `"Benchmark \\& Rigor Audit"` in `to_results_latex()`, and escaped `#`, `$`, `^`, and `~`.
+
 ## [1.1.1] - 2026-11-17
 
 ### Fixed

@@ -11,17 +11,24 @@ import numpy as np
 
 from wannado.wce import (
     STANDARDS_PROVENANCE,
+    AutonomousLinkDelayModel,
     ComposedWirelessEnv,
+    FederatedWirelessRoundModel,
     audit_wce_rigor,
+    audit_wce_spec,
     build_block_config,
+    build_wce_archetype,
     check_tool_platform_readiness,
     compose_wce_spec,
+    evaluate_link_delivery,
     evaluate_wce_suite,
+    itur_p618_rain_attenuation_db,
     provision_awgn_link,
     provision_ckm_radiomap_bridge,
     provision_isac_jsac_channel,
     provision_nearfield_xlmimo_thz,
     provision_otfs_delay_doppler,
+    simulate_federated_round,
     update_wce_spec_with_diff,
 )
 from wannado.wce.intake.spec import WCESpec
@@ -146,6 +153,137 @@ class TestWCERegressionFixes(unittest.TestCase):
         q_ready = check_tool_platform_readiness("quadriga_lib")
         if platform.system() == "Darwin" or sys.version_info >= (3, 13):
             self.assertTrue(any("quadriga-lib" in w for w in q_ready["warnings"]))
+
+
+class TestReleaseV112Regressions(unittest.TestCase):
+    def test_gym_env_actions_and_dynamic_step_overrides(self) -> None:
+        spec = build_wce_archetype("imt2030_isac_monostatic")
+        env0 = ComposedWirelessEnv(spec, batch_size=4, seed=7)
+        env2 = ComposedWirelessEnv(spec, batch_size=4, seed=7)
+        g0 = env0.as_gym_env(max_steps=10)
+        g2 = env2.as_gym_env(max_steps=10)
+        g0.reset(seed=7)
+        g2.reset(seed=7)
+        obs0, rew0, _, _, info0 = g0.step(0)
+        obs2, rew2, _, _, info2 = g2.step(2)
+        self.assertGreater(info2["mean_snr_db"], info0["mean_snr_db"] + 3.0)
+        self.assertGreater(obs2[0], obs0[0])
+        self.assertNotAlmostEqual(rew0, rew2, places=3)
+
+        # Runtime distance, 3D position, packet size, and rain overrides
+        env = ComposedWirelessEnv(build_wce_archetype("uav_gis"), batch_size=2, seed=9)
+        env.reset(seed=9)
+        near = env.step(
+            tx_pos_3d=[[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+            rx_pos_3d=[[20.0, 0.0, 50.0], [20.0, 0.0, 50.0]],
+            packet_bits=4000.0,
+        )
+        far_rain = env.step(
+            tx_pos_3d=[[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+            rx_pos_3d=[[1200.0, 0.0, 120.0], [1200.0, 0.0, 120.0]],
+            packet_bits=5e7,
+            rain_rate_mm_hr=60.0,
+        )
+        self.assertLess(far_rain.mean_snr_db, near.mean_snr_db - 10.0)
+        self.assertGreater(far_rain.arrived_bits, near.arrived_bits)
+
+    def test_composer_word_boundaries_starlink_lora_and_validation(self) -> None:
+        # "federated learning", "Starlink", "radar" all contain substring "ar" -> must NOT trigger XR!
+        spec_fl, _ = compose_wce_spec("federated learning over Starlink satellite with radar sensing")
+        self.assertNotIn("traffic_xr_immersive", spec_fl.blocks_selected)
+        self.assertIn("ntn_leo_satellite", spec_fl.blocks_selected)
+        self.assertIn("semantic_aircomp_channel", spec_fl.blocks_selected)
+
+        # Explicit "AR" word still enables immersive XR traffic
+        spec_ar, _ = compose_wce_spec("60 fps AR headset streaming in urban cellular MIMO")
+        self.assertIn("traffic_xr_immersive", spec_ar.blocks_selected)
+
+        # LoRaWAN sub-GHz default tuning
+        spec_lora, _ = compose_wce_spec("LoRaWAN sensor network in rural deployment")
+        self.assertAlmostEqual(spec_lora.carrier_fc_ghz, 0.915)
+        self.assertAlmostEqual(spec_lora.bandwidth_hz, 125e3)
+
+        # Strict Stage 0 physical validation
+        bad = build_wce_archetype("imt2030_isac_monostatic")
+        bad.min_tx_rx_distance_m = -2.0
+        bad.num_tx = 0
+        bad.numerology_mu = 7
+        bad.noise_figure_db = -1.0
+        bad.tx_power_dbm = 95.0
+        aud = audit_wce_spec(bad)
+        self.assertFalse(aud.ok)
+        self.assertGreaterEqual(len(aud.errors), 3)
+        self.assertGreaterEqual(len(aud.warnings), 2)
+
+        with self.assertRaises(ValueError):
+            evaluate_wce_suite(["awgn_link"], seeds=())
+
+    def test_latex_escaping_and_no_double_units(self) -> None:
+        for arch in ("imt2030_isac_monostatic", "uav_gis", "federated_edge", "v2v_control"):
+            spec = build_wce_archetype(arch)
+            self.assertTrue(audit_wce_spec(spec).ok, msg=arch)
+            tex1 = spec.format_system_parameter_table_tex()
+            self.assertNotIn("MHz Hz", tex1)
+
+        spec_comp, _ = compose_wce_spec(
+            "28 GHz urban MIMO",
+            problem_name="Study#1_v2^test~100%",
+        )
+        tex_comp = spec_comp.format_system_parameter_table_tex()
+        self.assertNotIn("MHz Hz", tex_comp)
+        self.assertIn("\\#", tex_comp)
+        self.assertIn("\\^{}", tex_comp)
+        self.assertIn("\\~{}", tex_comp)
+
+        rep = evaluate_wce_suite(
+            ["awgn_link"],
+            baseline_blocks=["awgn_link"],
+            seeds=(0, 1, 2),
+            task_name="Run#A&B^2~v1",
+            run_preflight=False,
+        )
+        res_tex = rep.to_results_latex()
+        self.assertIn("Benchmark \\& Rigor Audit", res_tex)
+        self.assertIn("\\#", res_tex)
+        self.assertIn("\\&", res_tex)
+
+    def test_rain_federated_and_autonomous_link_extensions(self) -> None:
+        zero_rain = itur_p618_rain_attenuation_db(28.0, 1000.0, rain_rate_mm_hr=0.0)
+        light_rain = itur_p618_rain_attenuation_db(28.0, 1000.0, rain_rate_mm_hr=10.0)
+        heavy_rain = itur_p618_rain_attenuation_db(28.0, 1000.0, rain_rate_mm_hr=50.0)
+        self.assertAlmostEqual(float(zero_rain), 0.0)
+        self.assertGreater(float(heavy_rain), float(light_rain))
+        self.assertGreater(float(light_rain), 0.1)
+
+        fl_near = simulate_federated_round(
+            num_clients=6,
+            payload_bits_per_client=1e5,
+            deadline_sec=0.5,
+            client_distances_m=[15.0, 20.0, 25.0, 30.0, 40.0, 50.0],
+            seed=3,
+        )
+        self.assertGreater(fl_near.participation_rate, 0.8)
+        self.assertAlmostEqual(float(fl_near.normalized_client_weights.sum()), 1.0, places=5)
+
+        fl_model = FederatedWirelessRoundModel(num_clients=4, payload_bits_per_client=5e8, deadline_sec=0.01, seed=4)
+        fl_tight = fl_model.step_round(client_distances_m=[500.0, 600.0, 700.0, 800.0], rain_rate_mm_hr=40.0)
+        self.assertGreater(fl_tight.straggler_count, 0)
+
+        link_model = AutonomousLinkDelayModel(preset="v2v_control", latency_budget_ms=10.0, packet_bits=8000.0, seed=5)
+        close_res = link_model.evaluate_step(tx_pos_3d=[0.0, 0.0, 1.5], rx_pos_3d=[15.0, 0.0, 1.5])
+        far_res = evaluate_link_delivery(
+            [0.0, 0.0, 1.5],
+            [900.0, 0.0, 1.5],
+            packet_bits=5e7,
+            latency_budget_ms=5.0,
+            preset="v2v_control",
+            rain_rate_mm_hr=50.0,
+            seed=5,
+        )
+        self.assertTrue(close_res.connected)
+        self.assertTrue(close_res.within_budget)
+        self.assertGreater(far_res.total_latency_ms, close_res.total_latency_ms)
+        self.assertFalse(far_res.within_budget)
 
 
 if __name__ == "__main__":

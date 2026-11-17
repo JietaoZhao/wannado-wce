@@ -6,11 +6,27 @@ Uses PEP 562 lazy loading so importing a single physics/traffic/6G block (e.g.
 
 from __future__ import annotations
 
+import importlib
 from typing import Any
 
 from wannado.wce.blocks import BLOCK_EXPORTS, lazy_resolve
 
-__version__ = "1.1.1"
+__version__ = "1.1.2"
+
+_SUBMODULES = frozenset(
+    {
+        "agent_kit",
+        "audit",
+        "blocks",
+        "catalog",
+        "copilot",
+        "core",
+        "intake",
+        "reporter",
+        "standards",
+        "workspace",
+    }
+)
 
 _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     **BLOCK_EXPORTS,
@@ -45,11 +61,17 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "recommend_wce_blueprint": ("wannado.wce.copilot", "recommend_wce_blueprint"),
     "scan_project": ("wannado.wce.copilot", "scan_project"),
     # Non-intrusive ./wce_lab/ boundary, forward-coupled ComposedWirelessEnv & single-file ejection
+    "AutonomousLinkDelayModel": ("wannado.wce.workspace", "AutonomousLinkDelayModel"),
     "ComposedSlotOutput": ("wannado.wce.workspace", "ComposedSlotOutput"),
     "ComposedWirelessEnv": ("wannado.wce.workspace", "ComposedWirelessEnv"),
+    "FederatedRoundResult": ("wannado.wce.workspace", "FederatedRoundResult"),
+    "FederatedWirelessRoundModel": ("wannado.wce.workspace", "FederatedWirelessRoundModel"),
+    "LinkDeliveryResult": ("wannado.wce.workspace", "LinkDeliveryResult"),
     "WirelessEnvInterface": ("wannado.wce.workspace", "WirelessEnvInterface"),
     "eject_block": ("wannado.wce.workspace", "eject_block"),
+    "evaluate_link_delivery": ("wannado.wce.workspace", "evaluate_link_delivery"),
     "scaffold_wce_lab": ("wannado.wce.workspace", "scaffold_wce_lab"),
+    "simulate_federated_round": ("wannado.wce.workspace", "simulate_federated_round"),
     # Stage 4 traceable provenance reporter & zero-hallucination citations
     "BlockExperimentSummary": ("wannado.wce.reporter", "BlockExperimentSummary"),
     "WCEReport": ("wannado.wce.reporter", "WCEReport"),
@@ -72,6 +94,7 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "check_tool_platform_readiness": ("wannado.wce.standards", "check_tool_platform_readiness"),
     "format_ecosystem_table": ("wannado.wce.standards", "format_ecosystem_table"),
     "get_jit_recipe": ("wannado.wce.standards", "get_jit_recipe"),
+    "itur_p618_rain_attenuation_db": ("wannado.wce.standards", "itur_p618_rain_attenuation_db"),
     "match_imt2030_scenario": ("wannado.wce.standards", "match_imt2030_scenario"),
     "probe_local_ecosystem": ("wannado.wce.standards", "probe_local_ecosystem"),
     "recommend_ecosystem_tools": ("wannado.wce.standards", "recommend_ecosystem_tools"),
@@ -104,6 +127,7 @@ __all__ = [
     "AWGNConfig",
     "ActiveRISFlexibleConfig",
     "AmbientIoTConfig",
+    "AutonomousLinkDelayModel",
     "BlockExperimentSummary",
     "CDLTDLConfig",
     "CKMRadioMapConfig",
@@ -114,10 +138,13 @@ __all__ = [
     "ComposedWirelessEnv",
     "FTPTrafficConfig",
     "FarFieldUPAConfig",
+    "FederatedRoundResult",
+    "FederatedWirelessRoundModel",
     "HRLLCFBLConfig",
     "ISACConfig",
     "JITAdapterRecipe",
     "JITProvisioningPlan",
+    "LinkDeliveryResult",
     "LitCitation",
     "MixedTrafficConfig",
     "MultiCellMACConfig",
@@ -172,6 +199,7 @@ __all__ = [
     "compose_wce_spec",
     "eject_block",
     "estimate_runtime",
+    "evaluate_link_delivery",
     "evaluate_wce_suite",
     "explain_parameters",
     "export_citations",
@@ -182,6 +210,7 @@ __all__ = [
     "get_standard_ref",
     "get_taxonomy_tree",
     "install_agent_kit",
+    "itur_p618_rain_attenuation_db",
     "load_catalog",
     "match_imt2030_scenario",
     "parse_param_updates_from_text",
@@ -227,6 +256,7 @@ __all__ = [
     "resolve_block_provenance",
     "scaffold_wce_lab",
     "scan_project",
+    "simulate_federated_round",
     "update_wce_spec_with_diff",
     "verify_external_channel_adapter",
     "verify_jit_adapter_file",
@@ -235,6 +265,10 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
+    if name in _SUBMODULES:
+        module = importlib.import_module(f"{__name__}.{name}")
+        globals()[name] = module
+        return module
     return lazy_resolve(name, _LAZY_EXPORTS, globals(), __name__)
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -24,7 +25,7 @@ from wannado.wce.core.units import (
     wavelength_m,
 )
 from wannado.wce.intake.spec import WCESpec
-from wannado.wce.standards.etsi_ieee import itur_p676_path_absorption_db
+from wannado.wce.standards.etsi_ieee import itur_p618_rain_attenuation_db, itur_p676_path_absorption_db
 from wannado.wce.standards.gpp_38901 import compute_los_probability_tr38901, compute_pathloss_tr38901_db
 from wannado.wce.standards.gpp_extensions import compute_uav_tr36777_pathloss, compute_v2x_tr37885_pathloss
 
@@ -71,10 +72,18 @@ class ComposedWirelessEnv:
       -> ``Traffic Queue & MAC Evaluation (XR 38.838 PDB, FTP/Pareto backlog)``.
     """
 
-    def __init__(self, spec: WCESpec, *, batch_size: int = 32, seed: int = 42) -> None:
+    def __init__(
+        self,
+        spec: WCESpec,
+        *,
+        batch_size: int = 32,
+        seed: int = 42,
+        rain_rate_mm_hr: float = 0.0,
+    ) -> None:
         self.spec = spec
         self.batch_size = max(1, int(batch_size))
         self.seed = int(seed)
+        self.rain_rate_mm_hr = max(0.0, float(rain_rate_mm_hr))
         self._rng = np.random.default_rng(self.seed)
         self._blocks = set(spec.blocks_selected)
 
@@ -98,32 +107,82 @@ class ComposedWirelessEnv:
         self._total_arrivals = 0
         self._on_time_arrivals = 0
         self._history: list[ComposedSlotOutput] = []
+        self._shadow_db = np.zeros(self.batch_size, dtype=np.float64)
+        self._is_los = np.ones(self.batch_size, dtype=bool)
+        self._altitudes_m = np.full(self.batch_size, 100.0, dtype=np.float64)
+        self._last_eff_snr_lin: np.ndarray | None = None
+        self._last_se: np.ndarray | None = None
 
         self._init_topology()
+
+    def _compute_large_scale_from_distances(
+        self,
+        dists_2d: np.ndarray,
+        *,
+        altitudes_m: np.ndarray | None = None,
+        rain_rate_mm_hr: float | None = None,
+        redraw_shadow: bool = False,
+    ) -> np.ndarray:
+        dists = np.maximum(np.asarray(dists_2d, dtype=np.float64), 1.0)
+        sf_db: float | np.ndarray
+        if "uav_air_to_ground" in self._blocks:
+            h_arr = np.asarray(altitudes_m if altitudes_m is not None else self._altitudes_m, dtype=np.float64)
+            if h_arr.size > 1 and float(np.ptp(h_arr)) > 1e-6:
+                pl_vals: list[float] = []
+                sf_vals: list[float] = []
+                for idx in range(len(dists)):
+                    p_i, s_i = compute_uav_tr36777_pathloss(
+                        "UMa-AV",
+                        dists[idx : idx + 1],
+                        float(h_arr[idx]),
+                        self.spec.carrier_fc_ghz,
+                        is_los=True,
+                    )
+                    pl_vals.append(float(p_i[0]))
+                    sf_vals.append(float(s_i))
+                pl_db = np.asarray(pl_vals, dtype=np.float64)
+                sf_db = np.asarray(sf_vals, dtype=np.float64)
+            else:
+                pl_db, sf_db = compute_uav_tr36777_pathloss(
+                    "UMa-AV",
+                    dists,
+                    float(h_arr.reshape(-1)[0]),
+                    self.spec.carrier_fc_ghz,
+                    is_los=True,
+                )
+        elif "v2x_vehicular_sl" in self._blocks:
+            pl_db, sf_db = compute_v2x_tr37885_pathloss("highway", dists, self.spec.carrier_fc_ghz, state="LOS")
+        elif "tr38901_inf" in self._blocks:
+            pl_db, sf_db = compute_pathloss_tr38901_db("UMi", dists, min(self.spec.carrier_fc_ghz, 100.0), is_los=False, h_bs_m=8.0)
+        else:
+            if redraw_shadow:
+                p_los = compute_los_probability_tr38901("UMa", dists)
+                self._is_los = self._rng.uniform(0.0, 1.0, size=self.batch_size) < p_los
+            pl_db, sf_db = compute_pathloss_tr38901_db("UMa", dists, min(self.spec.carrier_fc_ghz, 100.0), is_los=self._is_los)
+
+        # Add ITU-R P.676 gas absorption if > 70 GHz or Near-Field THz enabled
+        eff_dist_m = dists if altitudes_m is None else np.hypot(dists, np.asarray(altitudes_m, dtype=np.float64))
+        if self.spec.carrier_fc_ghz > 70.0 or "nearfield_xlmimo_thz" in self._blocks:
+            pl_db = pl_db + itur_p676_path_absorption_db(self.spec.carrier_fc_ghz, eff_dist_m, water_vapor_g_m3=7.5)
+
+        r_mm = self.rain_rate_mm_hr if rain_rate_mm_hr is None else max(0.0, float(rain_rate_mm_hr))
+        if r_mm > 0.0:
+            elev = 35.0 if ("uav_air_to_ground" in self._blocks or "ntn_leo_satellite" in self._blocks) else 0.0
+            pl_db = pl_db + itur_p618_rain_attenuation_db(self.spec.carrier_fc_ghz, eff_dist_m, rain_rate_mm_hr=r_mm, elevation_deg=elev)
+
+        if redraw_shadow:
+            self._shadow_db = self._rng.normal(0.0, sf_db, size=self.batch_size)
+        self._pathloss_db = np.asarray(pl_db, dtype=np.float64) + self._shadow_db
+        return np.asarray(db_to_linear(-self._pathloss_db), dtype=np.float64)
 
     def _init_topology(self) -> None:
         d_min = max(self.spec.min_tx_rx_distance_m, 2.0)
         d_max = max(d_min + 20.0, 250.0)
         self._dists_2d = self._rng.uniform(d_min, d_max, size=self.batch_size)
-
-        sf_db: float | np.ndarray
-        if "uav_air_to_ground" in self._blocks:
-            pl_db, sf_db = compute_uav_tr36777_pathloss("UMa-AV", self._dists_2d, 100.0, self.spec.carrier_fc_ghz, is_los=True)
-        elif "v2x_vehicular_sl" in self._blocks:
-            pl_db, sf_db = compute_v2x_tr37885_pathloss("highway", self._dists_2d, self.spec.carrier_fc_ghz, state="LOS")
-        elif "tr38901_inf" in self._blocks:
-            pl_db, sf_db = compute_pathloss_tr38901_db("UMi", self._dists_2d, min(self.spec.carrier_fc_ghz, 100.0), is_los=False, h_bs_m=8.0)
-        else:
-            p_los = compute_los_probability_tr38901("UMa", self._dists_2d)
-            is_los = self._rng.uniform(0.0, 1.0, size=self.batch_size) < p_los
-            pl_db, sf_db = compute_pathloss_tr38901_db("UMa", self._dists_2d, min(self.spec.carrier_fc_ghz, 100.0), is_los=is_los)
-
-        # Add ITU-R P.676 gas absorption if > 70 GHz or Near-Field THz enabled
-        if self.spec.carrier_fc_ghz > 70.0 or "nearfield_xlmimo_thz" in self._blocks:
-            pl_db = pl_db + itur_p676_path_absorption_db(self.spec.carrier_fc_ghz, self._dists_2d, water_vapor_g_m3=7.5)
-
-        self._pathloss_db = pl_db + self._rng.normal(0.0, sf_db, size=self.batch_size)
-        self._large_scale_gain = np.asarray(db_to_linear(-self._pathloss_db), dtype=np.float64)
+        self._altitudes_m = np.full(self.batch_size, 100.0, dtype=np.float64)
+        self._large_scale_gain = self._compute_large_scale_from_distances(
+            self._dists_2d, altitudes_m=self._altitudes_m, redraw_shadow=True
+        )
 
         # Initialize complex small-scale state (unit variance CN(0, 1))
         n_rx = max(1, self.spec.num_rx)
@@ -163,8 +222,79 @@ class ComposedWirelessEnv:
         arr = self._rng.poisson(0.15, size=self.batch_size)
         return arr * 6.4e4
 
-    def step(self) -> ComposedSlotOutput:
+    def step(
+        self,
+        *,
+        action: Any = None,
+        distances_m: np.ndarray | Sequence[float] | float | None = None,
+        tx_pos_3d: np.ndarray | Sequence[float] | None = None,
+        rx_pos_3d: np.ndarray | Sequence[float] | None = None,
+        positions_3d: tuple[Any, Any] | None = None,
+        packet_bits: np.ndarray | Sequence[float] | float | None = None,
+        ris_scale: float | None = None,
+        power_scale: float | None = None,
+        rain_rate_mm_hr: float | None = None,
+    ) -> ComposedSlotOutput:
         """Advance physical channel, metasurface cascade, causal CSI, 6G PHY, and traffic queues by 1 slot."""
+        if positions_3d is not None:
+            tx_pos_3d, rx_pos_3d = positions_3d
+
+        topology_updated = rain_rate_mm_hr is not None
+        altitudes_override: np.ndarray | None = None
+        if tx_pos_3d is not None or rx_pos_3d is not None:
+            tx_arr = np.zeros((self.batch_size, 3), dtype=np.float64) if tx_pos_3d is None else np.asarray(tx_pos_3d, dtype=np.float64)
+            rx_arr = np.zeros((self.batch_size, 3), dtype=np.float64) if rx_pos_3d is None else np.asarray(rx_pos_3d, dtype=np.float64)
+            if tx_arr.ndim == 1:
+                tx_arr = np.broadcast_to(tx_arr, (self.batch_size, 3))
+            if rx_arr.ndim == 1:
+                rx_arr = np.broadcast_to(rx_arr, (self.batch_size, 3))
+            diff_3d = rx_arr - tx_arr
+            d_horiz = np.hypot(diff_3d[:, 0], diff_3d[:, 1])
+            d_3d = np.linalg.norm(diff_3d, axis=-1)
+            self._dists_2d = np.maximum(d_horiz, np.maximum(d_3d * 0.25, 1.0))
+            altitudes_override = np.maximum(np.abs(diff_3d[:, 2]), 1.5)
+            self._altitudes_m = altitudes_override
+            topology_updated = True
+        elif distances_m is not None:
+            d_arr = np.broadcast_to(np.asarray(distances_m, dtype=np.float64), (self.batch_size,))
+            self._dists_2d = np.maximum(d_arr, 1.0)
+            topology_updated = True
+
+        if topology_updated:
+            self._large_scale_gain = self._compute_large_scale_from_distances(
+                self._dists_2d,
+                altitudes_m=altitudes_override,
+                rain_rate_mm_hr=rain_rate_mm_hr,
+                redraw_shadow=False,
+            )
+
+        act_power_mult = 1.0
+        act_ris_mult = 1.0
+        act_power_cost = 0.0
+        act_label: int | float | None = None
+        if action is not None:
+            if isinstance(action, (int, np.integer)) or (isinstance(action, np.ndarray) and action.ndim == 0 and np.issubdtype(action.dtype, np.integer)):
+                a_idx = int(action)
+                act_label = a_idx
+                if a_idx == 0:
+                    act_power_mult, act_ris_mult, act_power_cost = 0.5, 0.85, 0.0
+                elif a_idx == 1:
+                    act_power_mult, act_ris_mult, act_power_cost = 1.0, 1.0, 0.08
+                else:
+                    act_power_mult, act_ris_mult, act_power_cost = 2.0, 1.35, 0.25
+            else:
+                a_arr = np.asarray(action, dtype=np.float64).reshape(-1)
+                a_val = float(a_arr[0]) if a_arr.size > 0 else 0.0
+                act_label = a_val
+                act_power_mult = float(np.clip(0.5 + 0.75 * max(-1.0, min(2.0, a_val)) if a_val <= 1.0 else 0.5 * a_val, 0.2, 2.5))
+                act_ris_mult = float(np.clip(0.85 + 0.25 * max(0.0, a_val), 0.75, 1.5))
+                act_power_cost = 0.12 * act_power_mult
+
+        if power_scale is not None:
+            act_power_mult *= max(0.0, float(power_scale))
+        if ris_scale is not None:
+            act_ris_mult *= max(0.0, float(ris_scale))
+
         n_rx = self._h_state.shape[1]
         n_tx = self._h_state.shape[2]
         innov = (self._rng.normal(size=(self.batch_size, n_rx, n_tx)) + 1j * self._rng.normal(size=(self.batch_size, n_rx, n_tx))) / math.sqrt(2.0)
@@ -176,7 +306,7 @@ class ComposedWirelessEnv:
         h_small_t = torch.from_numpy(self._h_state.copy())
 
         # Layer 2: Array / Near-Field / RIS gain multiplier (enforcing conservation laws)
-        ris_gain = np.ones(self.batch_size, dtype=np.float64)
+        ris_gain = np.full(self.batch_size, act_ris_mult, dtype=np.float64)
         max_ris_mod = 1.0
         active_ris_noise_w = 0.0
         n_ris_el = max(8, int(self.spec.num_tx) * 4)
@@ -201,7 +331,7 @@ class ComposedWirelessEnv:
 
         # Layer 3: Causal CSI (uses only current/past slot; delayed_feedback reads t-1, never t+1!)
         chan_power = np.mean(np.abs(self._h_state) ** 2, axis=(1, 2))
-        raw_rx_w = self.tx_w * self._large_scale_gain * ris_gain * chan_power
+        raw_rx_w = (self.tx_w * act_power_mult) * self._large_scale_gain * ris_gain * chan_power
         if "isac_jsac_channel" in self._blocks:
             comm_frac = 0.6
             rx_w = raw_rx_w * comm_frac
@@ -258,9 +388,14 @@ class ComposedWirelessEnv:
             se = shannon_se
 
         # Layer 4: Packet arrivals & queue draining
-        arr_bits = self._draw_slot_arrivals_bits()
+        if packet_bits is not None:
+            arr_bits = np.broadcast_to(np.asarray(packet_bits, dtype=np.float64), (self.batch_size,)).clip(min=0.0)
+        else:
+            arr_bits = self._draw_slot_arrivals_bits()
         cap_bits_per_slot = se * self.spec.bandwidth_hz * self.slot_sec
         self._queue_bits = np.maximum(self._queue_bits + arr_bits - cap_bits_per_slot, 0.0)
+        self._last_eff_snr_lin = eff_snr_post.copy()
+        self._last_se = se.copy()
 
         # Track deadline satisfaction (drained or small residual within PDB threshold)
         if np.any(arr_bits > 0):
@@ -288,6 +423,10 @@ class ComposedWirelessEnv:
                 "max_ris_modulus": max_ris_mod,
                 "has_future_csi_leakage": False,
                 "rayleigh_distance_m": self.rayleigh_zr,
+                "mean_distance_m": float(np.mean(self._dists_2d)),
+                "power_scale": act_power_mult,
+                "action_applied": act_label,
+                "action_power_cost": act_power_cost,
             },
         )
         self._history.append(out)
@@ -372,8 +511,9 @@ class ComposedWirelessEnv:
             return _obs(out), out.to_dict()
 
         def _step(action: Any) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
-            out = self.step()
-            reward = float(out.achievable_rate_bps_hz - 0.05 * math.log1p(out.queue_bits_remaining))
+            out = self.step(action=action)
+            power_cost = float(out.diagnostics.get("action_power_cost", 0.0))
+            reward = float(out.achievable_rate_bps_hz - 0.05 * math.log1p(out.queue_bits_remaining) - power_cost)
             trunc = self._slot_idx >= max_steps
             return _obs(out), reward, False, trunc, out.to_dict()
 

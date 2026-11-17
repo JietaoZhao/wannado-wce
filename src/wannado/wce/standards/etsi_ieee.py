@@ -97,3 +97,71 @@ def itur_p676_path_absorption_db(
     """Total atmospheric absorption loss in dB over link distance_m."""
     gamma = itur_p676_attenuation_db_per_km(fc_ghz, water_vapor_g_m3=water_vapor_g_m3)
     return gamma * (np.asarray(distance_m, dtype=np.float64) / 1000.0)
+
+
+# ITU-R P.838-3 anchor points: (f_GHz, k_H, alpha_H, k_V, alpha_V)
+_P838_F_GHZ = np.array(
+    [1.0, 2.0, 4.0, 6.0, 10.0, 15.0, 20.0, 28.0, 38.0, 50.0, 60.0, 73.0, 85.0, 100.0],
+    dtype=np.float64,
+)
+_P838_KH = np.array(
+    [0.0000259, 0.0000847, 0.0001071, 0.0007056, 0.01217, 0.04481, 0.09164, 0.1964, 0.3844, 0.6600, 0.8606, 1.080, 1.240, 1.367],
+    dtype=np.float64,
+)
+_P838_AH = np.array(
+    [0.9691, 1.0664, 1.6009, 1.5900, 1.2571, 1.1233, 1.0568, 0.9679, 0.8852, 0.8084, 0.7656, 0.7200, 0.6920, 0.6639],
+    dtype=np.float64,
+)
+_P838_KV = np.array(
+    [0.0000308, 0.0000998, 0.0002461, 0.0004878, 0.01129, 0.05008, 0.09611, 0.1900, 0.3650, 0.6472, 0.8515, 1.072, 1.235, 1.368],
+    dtype=np.float64,
+)
+_P838_AV = np.array(
+    [0.8592, 0.9490, 1.2476, 1.5728, 1.2156, 1.0440, 0.9847, 0.9350, 0.8670, 0.7974, 0.7586, 0.7150, 0.6880, 0.6615],
+    dtype=np.float64,
+)
+
+
+def itur_p618_rain_attenuation_db(
+    fc_ghz: float | np.ndarray,
+    distance_m: float | np.ndarray,
+    *,
+    rain_rate_mm_hr: float = 25.0,
+    elevation_deg: float = 0.0,
+    polarization_tilt_deg: float = 45.0,
+) -> np.ndarray:
+    """Compute rain attenuation in dB using ITU-R P.838-3 specific attenuation and P.618/P.530 path reduction."""
+    r = max(0.0, float(rain_rate_mm_hr))
+    dist_km = np.maximum(np.asarray(distance_m, dtype=np.float64), 0.0) / 1000.0
+    if r == 0.0:
+        return np.zeros_like(dist_km + np.asarray(fc_ghz, dtype=np.float64) * 0.0, dtype=np.float64)
+
+    f = np.clip(np.asarray(fc_ghz, dtype=np.float64), 1.0, 100.0)
+    log_f = np.log10(f)
+    log_grid = np.log10(_P838_F_GHZ)
+
+    k_h = np.power(10.0, np.interp(log_f, log_grid, np.log10(_P838_KH)))
+    k_v = np.power(10.0, np.interp(log_f, log_grid, np.log10(_P838_KV)))
+    a_h = np.interp(log_f, log_grid, _P838_AH)
+    a_v = np.interp(log_f, log_grid, _P838_AV)
+
+    elev_rad = np.deg2rad(float(np.clip(elevation_deg, 0.0, 90.0)))
+    tau_rad = np.deg2rad(float(polarization_tilt_deg))
+    cos2_elev = float(np.cos(elev_rad) ** 2)
+    cos2_tau = float(np.cos(2.0 * tau_rad))
+
+    k = 0.5 * (k_h + k_v + (k_h - k_v) * cos2_elev * cos2_tau)
+    alpha = 0.5 * (k_h * a_h + k_v * a_v + (k_h * a_h - k_v * a_v) * cos2_elev * cos2_tau) / np.maximum(k, 1e-12)
+    gamma_r = k * np.power(r, alpha)  # specific attenuation dB/km
+
+    # Effective rain-cell path length (slant cap at h_R=4 km for NTN/UAV links, ITU-R P.530 reduction for terrestrial)
+    if elevation_deg > 1.0:
+        rain_ceiling_km = 4.0 / max(float(np.sin(elev_rad)), 0.05)
+        l_slant = np.minimum(dist_km, rain_ceiling_km)
+        r_fac = 1.0 / (1.0 + l_slant / max(1.0, 35.0 * float(np.exp(-0.015 * r))))
+        l_eff = l_slant * r_fac
+    else:
+        r_fac = 1.0 / (1.0 + dist_km / max(1.0, 35.0 * float(np.exp(-0.015 * r))))
+        l_eff = dist_km * r_fac
+
+    return np.asarray(gamma_r * l_eff, dtype=np.float64)
