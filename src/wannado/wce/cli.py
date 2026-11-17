@@ -91,7 +91,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_diff = sub.add_parser("diff-spec", help="Apply live parameter edits with LiveProvenance Diff & boundary alerts.")
     p_diff.add_argument("--spec", default="./wce_lab/wce_spec.json")
-    p_diff.add_argument("--request", default=None, help="Natural-language update e.g. '把频段改成140 GHz'.")
+    p_diff.add_argument("--request", default=None, help="Natural-language update e.g. 'Switch frequency to 140 GHz'.")
     p_diff.add_argument("--set", nargs="*", default=[], dest="kv_sets", help="key=value overrides.")
     p_diff.add_argument("--save", action="store_true", help="Write updated WCESpec back to --spec path.")
     p_diff.add_argument("--json", action="store_true", dest="as_json")

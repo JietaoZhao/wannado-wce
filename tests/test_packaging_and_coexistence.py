@@ -24,7 +24,7 @@ ADV_SRC = WANNA_ROOT / "wannado-adv" / "src"
 class TestPackagingAndCoexistence(unittest.TestCase):
     def test_no_wannado_init_py_pep420_namespace(self) -> None:
         self.assertFalse((WCE_SRC / "wannado" / "__init__.py").exists())
-        self.assertEqual(__version__, "1.1.2")
+        self.assertEqual(__version__, "1.1.3")
 
     def test_three_way_wannado_namespace_import(self) -> None:
         added: list[str] = []

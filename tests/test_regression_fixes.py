@@ -147,7 +147,7 @@ class TestWCERegressionFixes(unittest.TestCase):
         self.assertNotEqual(tx_prov.rationale, "Typical 3GPP UE max transmit power (23 dBm).")
 
         spec, _ = compose_wce_spec("urban MIMO", problem_name="28 GHz Study")
-        diff = update_wce_spec_with_diff(spec, "把频段改成 140 GHz")
+        diff = update_wce_spec_with_diff(spec, "Switch carrier frequency to 140 GHz")
         self.assertIn("140 GHz", diff.updated_spec.problem_name)
 
         q_ready = check_tool_platform_readiness("quadriga_lib")

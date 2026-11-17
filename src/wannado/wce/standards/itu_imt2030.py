@@ -30,7 +30,7 @@ class IMT2030ScenarioSpec:
 IMT2030_USAGE_SCENARIOS: dict[str, IMT2030ScenarioSpec] = {
     "IC": IMT2030ScenarioSpec(
         id="IC",
-        name="Immersive Communication (沉浸式通信)",
+        name="Immersive Communication",
         evolved_from_5g="eMBB (IMT-2020)",
         summary_plain="Ultra-high-rate interactive XR, holographic telepresence, and multi-user spatial video requiring consistent throughput and bounded jitter.",
         key_capabilities=("peak_data_rate", "user_experienced_data_rate", "spectrum_efficiency", "area_traffic_capacity", "mobility", "sustainability"),
@@ -46,7 +46,7 @@ IMT2030_USAGE_SCENARIOS: dict[str, IMT2030ScenarioSpec] = {
     ),
     "HRLLC": IMT2030ScenarioSpec(
         id="HRLLC",
-        name="Hyper-Reliable and Low-Latency Communication (超可靠低时延通信)",
+        name="Hyper-Reliable and Low-Latency Communication",
         evolved_from_5g="URLLC (IMT-2020)",
         summary_plain="Deterministic sub-millisecond industrial control, robotic surgery, smart grid protection, and cooperative autonomous swarms.",
         key_capabilities=("user_plane_latency", "reliability", "mobility", "security_and_resilience", "positioning"),
@@ -60,7 +60,7 @@ IMT2030_USAGE_SCENARIOS: dict[str, IMT2030ScenarioSpec] = {
     ),
     "MC": IMT2030ScenarioSpec(
         id="MC",
-        name="Massive Communication (海量通信)",
+        name="Massive Communication",
         evolved_from_5g="mMTC (IMT-2020)",
         summary_plain="Ultra-dense smart city sensors, pervasive digital twins, and batteryless / ambient energy-harvesting IoT.",
         key_capabilities=("connection_density", "sustainability", "coverage", "security_and_resilience"),
@@ -73,7 +73,7 @@ IMT2030_USAGE_SCENARIOS: dict[str, IMT2030ScenarioSpec] = {
     ),
     "UC": IMT2030ScenarioSpec(
         id="UC",
-        name="Ubiquitous Connectivity (泛在连接)",
+        name="Ubiquitous Connectivity",
         evolved_from_5g=None,
         summary_plain="Seamless coverage across rural, oceanic, aerial, and orbital layers via terrestrial-NTN (LEO/UAV/HAPS) convergence.",
         key_capabilities=("coverage", "interoperability", "mobility", "sustainability"),
@@ -87,7 +87,7 @@ IMT2030_USAGE_SCENARIOS: dict[str, IMT2030ScenarioSpec] = {
     ),
     "AIAC": IMT2030ScenarioSpec(
         id="AIAC",
-        name="Artificial Intelligence and Communication (AI与通信融合)",
+        name="Artificial Intelligence and Communication",
         evolved_from_5g=None,
         summary_plain="Native air-interface AI inference, CSI feedback compression, AirComp federated learning, semantic communication, and generative channel maps.",
         key_capabilities=("ai_related_capabilities", "spectrum_efficiency", "user_plane_latency", "security_and_resilience"),
@@ -100,7 +100,7 @@ IMT2030_USAGE_SCENARIOS: dict[str, IMT2030ScenarioSpec] = {
     ),
     "ISAC": IMT2030ScenarioSpec(
         id="ISAC",
-        name="Integrated Sensing and Communication (通感一体化)",
+        name="Integrated Sensing and Communication",
         evolved_from_5g=None,
         summary_plain="Dual-functional wireless networks delivering data while sensing range, Doppler velocity, angle, imaging, and cm-level positioning.",
         key_capabilities=("sensing", "positioning", "spectrum_efficiency", "security_and_resilience"),

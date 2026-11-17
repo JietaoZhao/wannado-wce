@@ -139,10 +139,9 @@
 <body>
   <main class="card">
     <span class="badge">WANNADO SERIES · WANNADO-WCE</span>
-    <h1>Feedback &amp; Suggestions / 建议与留言</h1>
+    <h1>Feedback &amp; Suggestions</h1>
     <p class="subtitle">
-      Share bug reports, new 3GPP/ITU/6G channel &amp; scenario requests, JIT simulator adapters (Sionna / DeepMIMO / ns-3 / OAI), or Co-Pilot UX suggestions — no login required.<br />
-      欢迎反馈 Bug、想要新增的 3GPP/ITU/6G 信道或标准、外部仿真器（Sionna / DeepMIMO / ns-3 / OAI）JIT 适配需求，或 AI IDE 对话交互建议（无需登录，支持匿名）。
+      Share bug reports, new 3GPP/ITU/6G channel &amp; scenario requests, JIT simulator adapters (Sionna / DeepMIMO / ns-3 / OAI), or Co-Pilot UX suggestions — no login required.
     </p>
 
     <form id="feedback-form" action="https://api.web3forms.com/submit" method="POST">
@@ -152,17 +151,17 @@
       <!-- Anti-spam honeypot -->
       <input type="checkbox" name="botcheck" tabindex="-1" autocomplete="off" style="display: none;" />
 
-      <label for="category">Topic / 反馈类型</label>
+      <label for="category">Topic</label>
       <select id="category" name="category">
-        <option value="WCE Co-Pilot / 4-Slot Assembler">AI IDE Co-Pilot / 4 槽位组装与交互体验</option>
-        <option value="3GPP / ITU / ETSI Standards & Physics">3GPP / ITU / ETSI 标准公式与参数溯源 (Table I)</option>
-        <option value="New 6G Channel / Algorithm Request">New 6G Block or Paper Request / 新增信道、超表面或通信模型</option>
-        <option value="JIT External Adapter (Sionna / DeepMIMO / ns-3 / OAI)">JIT Simulator Adapter / 外部仿真库拉取与张量适配</option>
-        <option value="Bug Report / Rigor Auditor">Bug Report or Rigor Auditor / 问题报错与物理审计规则</option>
-        <option value="General">General Feedback / 其他留言</option>
+        <option value="WCE Co-Pilot / 4-Slot Assembler">AI IDE Co-Pilot / 4-Slot Compositional Assembler</option>
+        <option value="3GPP / ITU / ETSI Standards & Physics">3GPP / ITU / ETSI Standard Formulas &amp; Table I Provenance</option>
+        <option value="New 6G Channel / Algorithm Request">New 6G Channel, Metasurface, or Paper Request</option>
+        <option value="JIT External Adapter (Sionna / DeepMIMO / ns-3 / OAI)">JIT Simulator Adapter (Sionna / DeepMIMO / ns-3 / OAI)</option>
+        <option value="Bug Report / Rigor Auditor">Bug Report or Physics Rigor Auditor</option>
+        <option value="General">General Feedback</option>
       </select>
 
-      <label for="message">Message / 具体建议或问题描述 *</label>
+      <label for="message">Message *</label>
       <textarea
         id="message"
         name="message"
@@ -170,7 +169,7 @@
         placeholder="Tell us what worked well, what felt awkward, or which 3GPP/ITU standard, 6G scenario, or simulator adapter you want supported next..."
       ></textarea>
 
-      <label for="contact">Optional Reply Handle / 选填联系方式 (GitHub @handle or email if you'd like a reply)</label>
+      <label for="contact">Optional Reply Handle (GitHub @handle or email if you'd like a reply)</label>
       <input
         type="text"
         id="contact"
@@ -182,7 +181,7 @@
         <div class="h-captcha" data-captcha="true"></div>
       </div>
 
-      <button type="submit" id="submit-btn">Send Feedback / 发送留言</button>
+      <button type="submit" id="submit-btn">Send Feedback</button>
       <div id="form-status" class="status" role="status" aria-live="polite"></div>
     </form>
 
@@ -213,12 +212,12 @@
       const hCaptchaVal = form.querySelector("textarea[name=h-captcha-response]")?.value;
       if (!hCaptchaVal) {
         statusBox.className = "status error";
-        statusBox.textContent = "Please complete the hCaptcha check first / 请先完成人机验证后再提交。";
+        statusBox.textContent = "Please complete the hCaptcha check before submitting.";
         return;
       }
 
       submitBtn.disabled = true;
-      submitBtn.textContent = "Sending... / 发送中...";
+      submitBtn.textContent = "Sending...";
       try {
         const res = await fetch("https://api.web3forms.com/submit", {
           method: "POST",
@@ -227,7 +226,7 @@
         const data = await res.json();
         if (data.success) {
           statusBox.className = "status success";
-          statusBox.textContent = "Thank you! Your feedback has been delivered privately to the maintainer. / 感谢反馈！留言已安全送达作者。";
+          statusBox.textContent = "Thank you! Your feedback has been delivered privately to the maintainer.";
           form.reset();
         } else {
           statusBox.className = "status error";
@@ -238,7 +237,7 @@
         statusBox.textContent = "Network error while submitting feedback. Please try again later.";
       } finally {
         submitBtn.disabled = false;
-        submitBtn.textContent = "Send Feedback / 发送留言";
+        submitBtn.textContent = "Send Feedback";
       }
     });
   </script>

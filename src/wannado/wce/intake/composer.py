@@ -127,7 +127,11 @@ def _extract_numeric_clues(query: str) -> dict[str, Any]:
         scale = {"khz": 1e3, "mhz": 1e6, "ghz": 1e9}[unit]
         extracted["bandwidth_hz"] = val * scale
 
-    m_ris = re.search(r"(\d+)\s*(?:元|个|elements?|阵元)?\s*(?:ris|irs|star-ris|star_ris|超表面|天线|antennas?|xl-mimo)", q)
+    m_ris = re.search(
+        r"(\d+)\s*(?:(?:bs|tx|rx|base\s+station|elements?|元|个|阵元)\s*){0,2}"
+        r"(?:ris|irs|star-ris|star_ris|超表面|天线|antennas?|xl-mimo)",
+        q,
+    )
     if m_ris:
         n_el = max(4, min(2048, int(m_ris.group(1))))
         extracted["num_tx"] = n_el
@@ -584,7 +588,7 @@ def compose_wce_spec(
 
 
 def parse_param_updates_from_text(text: str) -> dict[str, Any]:
-    """Parse natural-language parameter edits (e.g. '把频段改成140 GHz, RIS换256个单元')."""
+    """Parse natural-language parameter edits (e.g. 'Switch carrier frequency to 140 GHz, upgrade RIS to 256 elements')."""
     updates = _extract_numeric_clues(text)
     q = text.lower()
     if any(k in q for k in ("ideal csi", "genie", "理想csi")):

@@ -24,12 +24,12 @@ from wannado.wce.standards.itu_imt2030 import match_imt2030_scenario
 from wannado.wce.standards.jit_recipes import JIT_RECIPES
 
 _FAMILY_LABELS: dict[str, str] = {
-    "channel_classic": "Classic Statistical & Stochastic Geometry (经典衰落与随机几何)",
-    "channel_3gpp": "3GPP NR / NTN / UAV / V2X Standardized Channels (3GPP 权威标准信道)",
-    "arrays_and_ris": "Arrays, Near-Field XL-MIMO, RIS & Flexible Antennas (阵列/近场/超表面)",
-    "traffic_and_mac": "3GPP Traffic Generators & Multi-Cell MAC Queues (业务流量与多小区调度)",
+    "channel_classic": "Classic Statistical & Stochastic Geometry",
+    "channel_3gpp": "3GPP NR / NTN / UAV / V2X Standardized Channels",
+    "arrays_and_ris": "Arrays, Near-Field XL-MIMO, RIS & Flexible Antennas",
+    "traffic_and_mac": "3GPP Traffic Generators & Multi-Cell MAC Queues",
     "domain_6g": "IMT-2030 / 6G Frontier (ISAC / OTFS / HRLLC / A-IoT / AIAC / Security)",
-    "baselines": "Analytic Baselines & CKM/RadioMap Reconstruction (解析基线与环境知识图谱)",
+    "baselines": "Analytic Baselines & CKM/RadioMap Reconstruction",
 }
 
 
@@ -251,7 +251,7 @@ def explain_parameters(
     return {
         "carrier_and_bandwidth": _knob(
             parameter="carrier_fc_ghz & bandwidth_hz",
-            terminology="Carrier Frequency (载频 f_c) & Bandwidth (带宽 B)",
+            terminology="Carrier Frequency (f_c) & Bandwidth (B)",
             plain_analogy=(
                 "Think of Carrier Frequency as which radio highway you drive on (3.5 GHz penetrates walls well; 28/100 GHz is a wide empty "
                 "expressway blocked easily by walls/rain), and Bandwidth as the total lane width (wider B carries more data AND collects more thermal noise k_B*T*B)."
@@ -266,7 +266,7 @@ def explain_parameters(
         ),
         "numerology_and_mobility": _knob(
             parameter="numerology_mu & max_speed_mps",
-            terminology="NR Numerology (子载波间隔 mu) & Doppler Coherence (多普勒与相干时间)",
+            terminology="NR Numerology (mu) & Doppler Coherence Time",
             plain_analogy=(
                 "Raising numerology mu slices each millisecond into 2^mu shorter slots with wider subcarriers—like making camera shutter speeds faster so "
                 "fast-moving cars/satellites don't blur across frames."
@@ -281,7 +281,7 @@ def explain_parameters(
         ),
         "csi_assumption": _knob(
             parameter="csi_assumption",
-            terminology="CSI Knowledge Assumption (信道状态信息假设: 理想 vs 真实导频估计 vs 延迟反馈)",
+            terminology="CSI Knowledge Assumption (Ideal Genie vs Realistic Pilot CSI vs Delayed Feedback)",
             plain_analogy=(
                 "Driving with a clean future GPS map (Ideal Genie CSI) vs reading slightly noisy live dashboard radar (Realistic Estimated CSI). "
                 "Reviewers reject papers that accidentally feed future/noiseless channels to causal algorithms!"
@@ -296,7 +296,7 @@ def explain_parameters(
         ),
         "traffic_model": _knob(
             parameter="traffic_model",
-            terminology="Traffic Arrival Model (业务流量模型: 满队列陷阱 vs 3GPP FTP / Pareto / XR)",
+            terminology="Traffic Arrival Model (Full-Buffer Trap vs 3GPP FTP / Pareto / XR)",
             plain_analogy=(
                 "Full-buffer assumes every user always has an infinite backlog (unrealistic!); 3GPP FTP/Poisson/Pareto/XR models real packets arriving in bursts "
                 "with actual queue wait times and deadlines."
@@ -311,7 +311,7 @@ def explain_parameters(
         ),
         "seeds_and_storage": _knob(
             parameter="num_seeds & output_dir",
-            terminology="Multi-Seed Rigor & Traceable Output Directory (多种子统计与环境溯源保存路径)",
+            terminology="Multi-Seed Rigor & Traceable Output Directory",
             plain_analogy=(
                 "Repeating wireless Monte Carlo realizations across >=3 independent random seeds avoids single-seed luck, while keeping everything in "
                 f"`{output_dir}` leaves your own project files 100% untouched."
@@ -492,57 +492,57 @@ _SCENARIO_FORKS: dict[str, list[dict[str, Any]]] = {
     "uav_ris_relay": [
         {
             "fork_id": "uav_role",
-            "question": "无人机在你的研究里承担哪种核心角色？（先确认架构方向，不急着填具体数字）",
+            "question": "Which primary role does the UAV play in your study? (Confirm the architecture first before tuning numbers)",
             "options": [
-                "[A] 城郊低空空地信道基准（Al-Hourani 2014 概率 LoS + 3GPP TR 36.777 UMa-AV，推荐默认）",
-                "[B] 无人机中继 / 搭载 RIS·STAR-RIS 覆盖盲区（叠加 ETSI GR RIS 003 守恒约束）",
-                "[C] 低空智联与通感一体化（UAV-ISAC 目标追踪 + CRB 评估）",
+                "[A] Suburban low-altitude Air-to-Ground baseline (Al-Hourani 2014 LoS prob + 3GPP TR 36.777 UMa-AV) [Recommended]",
+                "[B] Aerial relay carrying RIS / STAR-RIS for blind-spot coverage (ETSI GR RIS 003 energy conservation)",
+                "[C] Connected UAV with Integrated Sensing and Communication (UAV-ISAC target tracking + CRB)",
             ],
         },
         {
             "fork_id": "uav_traffic_priority",
-            "question": "链路更关注飞控高可靠（低时延短包）还是高清回传容量？",
+            "question": "Does the link prioritize ultra-reliable short control packets or high-rate payload backhaul?",
             "options": [
-                "[A] 兼顾标准蜂窝回传与导频真实 CSI 误差（FTP Model 3 + LMMSE 误差，推荐）",
-                "[B] 飞控超可靠短包（叠加 Polyanskiy FBL 有限码长惩罚 `hrllc_fbl_urllc`）",
+                "[A] Standard cellular backhaul with causal noisy pilot CSI (FTP Model 3 + LMMSE error) [Recommended]",
+                "[B] Ultra-reliable low-latency control packets (Polyanskiy FBL penalty via `hrllc_fbl_urllc`)",
             ],
         },
     ],
     "imt2030_isac_monostatic": [
         {
             "fork_id": "isac_geometry",
-            "question": "你的通感（ISAC）主要采用哪种收发与干扰模型？",
+            "question": "Which ISAC sensing geometry and clutter model fits your setup?",
             "options": [
-                "[A] 单站（Monostatic）基站自发自收 + 3GPP Rel-19 TR 38.901 背景杂波（推荐默认）",
-                "[B] 双站（Bistatic）或多基站协作感知（测距/测速联合 CRB）",
+                "[A] Monostatic full-duplex BS echo + 3GPP Rel-19 TR 38.901 background clutter [Recommended]",
+                "[B] Bistatic / multi-static cooperative sensing (joint range & velocity CRB)",
             ],
         },
         {
             "fork_id": "isac_csi",
-            "question": "波束赋形与感知反馈采用真实导频估计还是理想上界对比？",
+            "question": "Should beamforming & sensing feedback use causal estimated CSI or ideal upper-bound reference?",
             "options": [
-                "[A] 真实导频估计 + WMMSE/CRB 基线对比（防止完美 CSI 泄漏，推荐）",
-                "[B] 仅做理论性能上限（ideal_genie_baseline，报告内标注为上界参考）",
+                "[A] Realistic noisy pilot CSI + WMMSE/CRB baseline comparison (prevents future CSI leakage) [Recommended]",
+                "[B] Analytical upper-bound reference only (`ideal_genie_baseline`, disclosed as oracle bound in report)",
             ],
         },
     ],
     "multicell_ofdma_mac": [
         {
             "fork_id": "mac_consumer",
-            "question": "这个多小区信道与队列环境主要接给谁使用？",
+            "question": "How will you consume this multi-cell interference and queue environment?",
             "options": [
-                "[A] 接入 `wannado-drl` (`./drl_lab/`) 训练 PPO/SAC 资源分配策略（导出现实因果状态 Gym）",
-                "[B] 先直接做标准启发式调度基准对比（Proportional Fair vs Max-SNR vs Round-Robin）",
+                "[A] Export to `wannado-drl` (`./drl_lab/`) to train PPO/SAC schedulers with causal state observations",
+                "[B] Benchmark classical schedulers directly (Proportional Fair vs Max-SNR vs Round-Robin)",
             ],
         },
     ],
     "jamming_contested_rf": [
         {
             "fork_id": "security_threat",
-            "question": "主要面向哪类物理层安全或抗干扰场景？",
+            "question": "Which physical-layer security or anti-jamming threat model are you studying?",
             "options": [
-                "[A] 恶意 RF 阻塞/对抗样本（与 `wannado-adv` `norm='jsr_db'` 无缝联动）",
-                "[B] 窃听保密容量与隐蔽通信（Wyner Secrecy + Bash sqrt(n) KL 散度约束）",
+                "[A] Adversarial RF jamming / evasion perturbations (integrates seamlessly with `wannado-adv` `norm='jsr_db'`)",
+                "[B] Wiretap secrecy capacity & covert communication (Wyner secrecy + Bash sqrt(n) KL divergence bound)",
             ],
         },
     ],
@@ -562,24 +562,24 @@ def _build_clarifying_forks(
         forks.append(
             {
                 "fork_id": "legacy_code_isolation",
-                "question": f"扫描到现有代码中存在潜在仿真陷阱（{trap_names}）。希望如何重构？",
+                "question": f"Detected potential simulation traps in your existing scripts ({trap_names}). How would you like to structure the fix?",
                 "options": [
-                    "[A] 保持你原有脚本 100% 不动，在独立 `./wce_lab/` 内按 3GPP/ITU 标准重搭环境并出对照报告（推荐）",
-                    "[B] 生成 `./wce_lab/` 的同时，把原有脚本的通道函数逐个替换为 `./wce_lab/interface.py`",
+                    "[A] Keep your existing scripts 100% untouched and provision a clean 3GPP/ITU comparison lab under `./wce_lab/` [Recommended]",
+                    "[B] Generate `./wce_lab/` and progressively swap legacy channel functions to `./wce_lab/interface.py`",
                 ],
             }
         )
 
     readiness = jit_dict.get("readiness_reports") or []
     if readiness:
-        rd_desc = "; ".join(f"{r['tool_id']}(需~{r['estimated_required_gb']}GB/余{r['free_disk_gb']}GB)" for r in readiness[:2])
+        rd_desc = "; ".join(f"{r['tool_id']}(~{r['estimated_required_gb']}GB req / {r['free_disk_gb']}GB free)" for r in readiness[:2])
         forks.append(
             {
                 "fork_id": "jit_external_pull_confirm",
-                "question": f"检测到真实街区/外部物理引擎需求 [{rd_desc}]。当前硬件环境与适配方案已检查完毕，是否确认安装？",
+                "question": f"External ray-tracing / physics engine requested [{rd_desc}]. Hardware readiness checked — install external tool?",
                 "options": [
-                    "[A] 我已确认硬件/磁盘限制，同意按需安装外部库并自动跑通 `--self-test` 归一化胶水（推荐）",
-                    "[B] 暂不下载大体积外部库，先用 `./wce_lab/adapters/` 生成干跑契约 + Tier 0 统计模型起步",
+                    "[A] Confirm hardware/disk availability, install external package, and run `--self-test` normalized adapter glue [Recommended]",
+                    "[B] Skip large external downloads for now; generate dry-run adapter contracts + Tier 0 built-in statistical models",
                 ],
             }
         )
@@ -607,10 +607,10 @@ def _build_clarifying_forks(
         forks.append(
             {
                 "fork_id": "scene_and_rigor",
-                "question": f"已按 `{spec.imt2030_scenario}` + `{', '.join(spec.blocks_selected[:2])}` 拟好默认标准环境。是否需要追加近场/RIS/DRL 等组件？",
+                "question": f"Drafted default standards-anchored env for `{spec.imt2030_scenario}` + `{', '.join(spec.blocks_selected[:2])}`. Add near-field, RIS, or DRL components?",
                 "options": [
-                    "[A] 按当前 3GPP/ITU 默认基准直接生成 `./wce_lab/` 并跑多随机种子验证（推荐）",
-                    "[B] 我补充一句具体特征（如加 STAR-RIS / 换 28 GHz / 接强化学习），重新 4 槽位组合",
+                    "[A] Scaffold `./wce_lab/` and run multi-seed validation with the current 3GPP/ITU defaults [Recommended]",
+                    "[B] Specify one extra requirement (e.g., add STAR-RIS, 28 GHz carrier, or `wannado-drl` interface) to re-compose",
                 ],
             }
         )

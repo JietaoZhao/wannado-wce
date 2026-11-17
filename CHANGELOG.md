@@ -2,6 +2,11 @@
 
 All notable changes to `wannado-wce` will be documented in this file.
 
+## [1.1.3] - 2026-11-17
+
+### Changed
+- **English-first demos, UI dialogs & standard naming**: Translated all README CLI demos, CLI `--request` help example, `docs/index.html` feedback portal, Co-Pilot clarifying fork dialogs & labels (`copilot/planner.py`), ITU-R M.2160 scenario names (`standards/itu_imt2030.py`), docstrings, and test fixtures to clean English; preserved silent multilingual NL input keyword matching inside `composer.py` / `planner.py` as an optional parser fallback while ensuring all outputs default cleanly to English.
+
 ## [1.1.2] - 2026-11-17
 
 ### Added

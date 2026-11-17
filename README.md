@@ -6,7 +6,7 @@
 
 **Standards-Anchored, Just-in-Time (JIT) Wireless Communication Environment Quick Provisioning for 5G-Advanced, 6G / IMT-2030, ISAC, RIS, Near-Field XL-MIMO, NTN, UAV, V2X, and AI-Native Networks**
 
-[![Version](https://img.shields.io/badge/version-1.1.2-2563eb)](https://github.com/JietaoZhao/wannado-wce/blob/main/pyproject.toml)
+[![Version](https://img.shields.io/badge/version-1.1.3-2563eb)](https://github.com/JietaoZhao/wannado-wce/blob/main/pyproject.toml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-0f766e)](https://github.com/JietaoZhao/wannado-wce/blob/main/pyproject.toml)
 [![Standards](https://img.shields.io/badge/standards-21%20ITU%2F3GPP%2FETSI%2FIEEE-7c3aed)](#1-authoritative-standards--scenario-matrix-21-standards--6-imt-2030-scenarios)
 [![Blocks](https://img.shields.io/badge/executable%20blocks-33%20single--file-059669)](#2-the-33-block-single-file-arsenal-classic--2025-frontier)
@@ -36,12 +36,12 @@ wannado-wce inspect /path/to/your/project --query "28 GHz ISAC monostatic radar 
 Or run the **4-Slot Compositional Assembler** (`v1.1`) and **forward-coupled `ComposedWirelessEnv`** inside an isolated `./wce_lab/` workspace:
 
 ```bash
-wannado-wce compose "UAV搭载STAR-RIS在28 GHz近场辅助ISAC，带60 fps XR业务和LMMSE误差"
+wannado-wce compose "UAV carrying STAR-RIS at 28 GHz near-field ISAC with 60 fps XR traffic and LMMSE pilot errors"
 wannado-wce scaffold --dir ./wce_lab --query "UAV + STAR-RIS + 28 GHz ISAC + XR"
 python3 ./wce_lab/run_provision.py --seeds 0 1 2
 
 # Live parameter tuning with automatic Rayleigh near-field / >100 GHz boundary alerts & Table I diff:
-wannado-wce diff-spec --spec ./wce_lab/wce_spec.json --request "把频段改成 140 GHz" --save
+wannado-wce diff-spec --spec ./wce_lab/wce_spec.json --request "Switch carrier frequency to 140 GHz" --save
 
 # Verify OS/Docker/disk & generate normalized complex64 external simulator glue before downloading:
 wannado-wce jit-recipe sionna_rt --write-dir ./wce_lab/adapters --verify
@@ -124,7 +124,7 @@ All packages in the **WannaDo Series** share the strict **PEP 420** namespace `w
 ```bash
 wannado-wce inspect . --query "..."          # Traverse codebase & surface clues + dialog + JIT brief
 wannado-wce compose "28 GHz UAV STAR-RIS ISAC" # 4-slot compositional assembler -> coupled WCESpec + Table I
-wannado-wce diff-spec --spec ./wce_lab/wce_spec.json --request "把频段改成 140 GHz" --save
+wannado-wce diff-spec --spec ./wce_lab/wce_spec.json --request "Switch carrier frequency to 140 GHz" --save
 wannado-wce jit-recipe sionna_rt --verify    # Platform/disk check + complex64 normalized adapter self-test
 wannado-wce arsenal                          # View 33 blocks across 6 families (classic -> frontier)
 wannado-wce standards --org 3GPP             # Filter 21 codified ITU-R / 3GPP / ETSI / IEEE specs

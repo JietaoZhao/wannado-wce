@@ -32,7 +32,7 @@ from wannado.wce.standards.jit_recipes import JIT_RECIPES
 
 class TestCompositionalAndJITAdapters(unittest.TestCase):
     def test_4slot_compositional_assembler_multitech_query(self) -> None:
-        query = "我要做 UAV 搭载 STAR-RIS 在 28 GHz 近场辅助 ISAC，且带有 60 fps XR 业务与真实 LMMSE 导频误差"
+        query = "UAV carrying STAR-RIS at 28 GHz near-field ISAC with 60 fps XR traffic and realistic LMMSE pilot errors"
         spec, plan = compose_wce_spec(query)
 
         self.assertEqual(spec.archetype, "composed_custom")
@@ -57,8 +57,8 @@ class TestCompositionalAndJITAdapters(unittest.TestCase):
         base_spec, _ = compose_wce_spec("3.5 GHz urban cellular MIMO with UPA and FTP traffic")
         self.assertNotIn("nearfield_xlmimo_thz", base_spec.blocks_selected)
 
-        # Case 1: Shift frequency above TR 38.901 100 GHz ceiling via Chinese NL diff
-        diff_thz = update_wce_spec_with_diff(base_spec, "把频段改成 140 GHz，距离 10 m")
+        # Case 1: Shift frequency above TR 38.901 100 GHz ceiling via NL diff
+        diff_thz = update_wce_spec_with_diff(base_spec, "Switch carrier frequency to 140 GHz, distance 10 m")
         self.assertEqual(diff_thz.updated_spec.carrier_fc_ghz, 140.0)
         self.assertIn("nearfield_xlmimo_thz", diff_thz.auto_promoted_blocks)
         self.assertIn("itur_p676", diff_thz.updated_spec.standard_ids)
@@ -103,7 +103,7 @@ class TestCompositionalAndJITAdapters(unittest.TestCase):
             lab_dir = Path(tmpdir) / "wce_lab"
             written = scaffold_wce_lab(
                 lab_dir,
-                query="UAV 搭载 STAR-RIS 在 28 GHz 做 ISAC 并接入 Sionna RT",
+                query="UAV carrying STAR-RIS at 28 GHz for ISAC with Sionna RT ray tracing",
                 overwrite=True,
             )
             self.assertIn("adapter_sionna_rt_adapter_py", written)
@@ -157,7 +157,9 @@ class TestCompositionalAndJITAdapters(unittest.TestCase):
             self.assertEqual(rc_c, 0)
             self.assertTrue(spec_p.exists())
 
-            rc_d = cli_main(["diff-spec", "--spec", str(spec_p), "--request", "把频段改成 140 GHz", "--save", "--json"])
+            rc_d = cli_main(
+                ["diff-spec", "--spec", str(spec_p), "--request", "Switch carrier frequency to 140 GHz", "--save", "--json"]
+            )
             self.assertEqual(rc_d, 0)
 
             rc_j = cli_main(["jit-recipe", "sionna_rt", "--write-dir", str(Path(tmpdir) / "adapters"), "--verify", "--json"])
@@ -167,10 +169,10 @@ class TestCompositionalAndJITAdapters(unittest.TestCase):
         from wannado.wce import build_interactive_brief, scan_project
 
         # 1. Pure UAV query should NOT inject unrequested RIS blocks, while returning UAV clarifying forks & aligned dialog
-        uav_bp = recommend_wce_blueprint("我要做 6G 低空无人机通信，用什么信道合适？")
+        uav_bp = recommend_wce_blueprint("I want to simulate 6G low-altitude UAV air-to-ground communications; which channel fits?")
         self.assertIn("uav_air_to_ground", uav_bp["wce_spec"]["blocks_selected"])
         self.assertNotIn("passive_ris_cascade", uav_bp["wce_spec"]["blocks_selected"])
-        uav_brief = build_interactive_brief(query="我要做 6G 低空无人机通信，用什么信道合适？")
+        uav_brief = build_interactive_brief(query="I want to simulate 6G low-altitude UAV air-to-ground communications; which channel fits?")
         self.assertIn("uav_role", [f["fork_id"] for f in uav_brief["clarifying_forks"]])
         self.assertIn("uav_air_to_ground", uav_brief["goal_confirmation_dialog"]["ai_understanding_summary"])
 
@@ -185,7 +187,9 @@ class TestCompositionalAndJITAdapters(unittest.TestCase):
             self.assertIn("unseeded_randomness", trap_ids)
 
         # 3. Real building 28 GHz query triggers Sionna RT & DeepMIMO + readiness + DeepMIMO catalog
-        rt_brief = build_interactive_brief(query="普通统计信道不够，我要建真实建筑遮挡的 28 GHz 街区无线仿真环境")
+        rt_brief = build_interactive_brief(
+            query="Statistical channels are not enough; I need a 28 GHz urban site-specific ray-tracing simulation with 3D building blockage"
+        )
         tool_ids = {t["id"] for t in rt_brief["jit_plan"]["external_tools"]}
         self.assertIn("sionna_rt", tool_ids)
         self.assertIn("deepmimo", tool_ids)
@@ -194,7 +198,10 @@ class TestCompositionalAndJITAdapters(unittest.TestCase):
 
         # 4. 140 GHz + 256 antennas + 5 m MUST trigger both band ceiling alert AND near-field transition AND direct mu=4
         base, _ = compose_wce_spec("3.5 GHz urban MIMO")
-        d_thz = update_wce_spec_with_diff(base, "把频段改成 140 GHz，基站阵列换成 256 个天线，距离 5 m")
+        d_thz = update_wce_spec_with_diff(
+            base,
+            "Switch carrier frequency to 140 GHz, upgrade BS to 256 BS antennas, distance 5 m",
+        )
         self.assertTrue(any("Near-field transition" in a for a in d_thz.boundary_alerts))
         self.assertTrue(any("100 GHz" in a or "140.0 GHz" in a for a in d_thz.boundary_alerts))
         self.assertEqual(d_thz.updated_spec.numerology_mu, 4)

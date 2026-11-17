@@ -11,7 +11,7 @@ from typing import Any
 
 from wannado.wce.blocks import BLOCK_EXPORTS, lazy_resolve
 
-__version__ = "1.1.2"
+__version__ = "1.1.3"
 
 _SUBMODULES = frozenset(
     {
