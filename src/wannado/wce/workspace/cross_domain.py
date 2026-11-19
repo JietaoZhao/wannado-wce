@@ -251,12 +251,13 @@ class AutonomousLinkDelayModel:
         queue_wait_ms = 1000.0 * float(self.env._queue_bits[0]) / rate_bps
         total_latency_ms = air_latency_ms + queue_wait_ms
 
-        # Polyanskiy normal-approximation block error estimate over one slot blocklength
+        # Polyanskiy normal-approximation block error estimate (IEEE TIT 2010):
+        # Q( sqrt(n / V) * (C(SNR) - R) ) with both C, R in bits/channel-use and V in bits^2/channel-use.
         n_sym = max(64.0, self.spec.bandwidth_hz * (budget_ms * 1e-3) * 0.1)
-        req_se = bits / max(self.spec.bandwidth_hz * (budget_ms * 1e-3), 1.0)
+        req_se = bits / n_sym
         cap_shannon = math.log2(1.0 + max(snr_lin, 1e-12))
         v_disp = max((1.0 - (1.0 + max(snr_lin, 1e-12)) ** (-2.0)) * (math.log2(math.e) ** 2), 1e-6)
-        arg = math.sqrt(n_sym / v_disp) * (cap_shannon - req_se) * math.log(2.0)
+        arg = math.sqrt(n_sym / v_disp) * (cap_shannon - req_se)
         bler = float(np.clip(qfunc(np.asarray(arg, dtype=np.float64)), 0.0, 1.0))
 
         eff_dist = float(self.env._dists_2d[0])

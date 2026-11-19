@@ -109,7 +109,7 @@ def provision_ls_lmmse_csi(config: CSIEstimatorConfig | None = None, **overrides
     nmse_lmmse = float(torch.mean((h_lmmse - h_true).abs().pow(2).sum(dim=-1)).item() / max(sig_pow, 1e-12))
 
     prov = [
-        ParamProvenance("pilot_snr_db", cfg.pilot_snr_db, "dB", "Orthogonal pilot SNR", "gpp_tr38843", "Clause 5.2", "gpp_tr38843", "Determines pilot noise floor 1/SNR_pilot."),
+        ParamProvenance("pilot_snr_db", cfg.pilot_snr_db, "dB", "Orthogonal pilot SNR", "gpp_tr38843", "Clause 5.2", "3gpp_tr38843", "Determines pilot noise floor 1/SNR_pilot."),
     ]
     return ProvisionResult(
         block_id=META.id,

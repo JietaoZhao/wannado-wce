@@ -69,8 +69,8 @@ class TestWCERegressionFixes(unittest.TestCase):
         pl_nlos, sf_nlos = compute_v2x_tr37885_pathloss("highway", d, 5.9, state="NLOS")
         self.assertFalse(np.allclose(pl_los, pl_nlos))
         self.assertTrue(np.all(pl_nlos >= pl_los))
-        self.assertEqual(sf_los, 3.3)
-        self.assertEqual(sf_nlos, 5.2)
+        self.assertEqual(sf_los, 3.0)
+        self.assertEqual(sf_nlos, 4.0)
 
     def test_isac_monostatic_vs_bistatic_round_trip_crb(self) -> None:
         mono = provision_isac_jsac_channel(topology="monostatic", target_range_m=50.0, bistatic_rx_range_m=50.0, seed=7)

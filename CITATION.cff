@@ -1,14 +1,15 @@
 cff-version: 1.2.0
 message: "If you use wannado-wce in your research, please cite it using this metadata."
 title: "wannado-wce: Standards-Anchored, Just-In-Time Wireless Environment Platform"
-version: 1.2.0
+version: 1.2.1
 date-released: "2026-11-19"
 license: MIT
 repository-code: "https://github.com/JietaoZhao/wannado-wce"
 url: "https://github.com/JietaoZhao/wannado-wce"
 authors:
   - alias: "JettZ"
-    name: "Jietao Zhao"
+    family-names: "Zhao"
+    given-names: "Jietao"
 keywords:
   - wireless-communications
   - 6g

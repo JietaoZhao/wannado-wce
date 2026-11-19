@@ -15,7 +15,6 @@ from wannado.wce.core.types import ProvisionResult
 from wannado.wce.intake.archetypes import SpecAuditReport, audit_wce_spec
 from wannado.wce.intake.composer import compose_wce_spec
 from wannado.wce.intake.spec import WCESpec
-from wannado.wce.reporter.env_reporter import build_block_config
 from wannado.wce.workspace.composed_env import ComposedWirelessEnv
 from wannado.wce.workspace.link_level_phy import LinkLevelPHYResult, evaluate_link_level_phy
 
@@ -89,6 +88,8 @@ def verify_wce_target(
     strict_warnings: bool = False,
 ) -> WCEVerifyReport:
     """Execute end-to-end Stage 0 -> Preflight -> Rigor 2.0 -> Link-Level PHY verification gate."""
+    from wannado.wce.reporter.env_reporter import build_block_config
+
     seeds_t = tuple(int(s) for s in seeds)
     if not seeds_t:
         raise ValueError("seeds must contain at least one integer seed.")
@@ -245,6 +246,9 @@ def verify_wce_target(
                 if not finite_ok:
                     phy_ok = False
                     red_flags.append("link_level_phy_nonfinite")
+                elif phy_snr_db >= 0.0 and phy_res.coded_bler >= 0.99 and phy_res.uncoded_ber >= 0.40:
+                    phy_ok = False
+                    red_flags.append("link_level_phy_complete_outage_at_nominal_snr")
             except Exception as exc:  # noqa: BLE001
                 phy_ok = False
                 red_flags.append(f"link_level_phy_error:{exc}")

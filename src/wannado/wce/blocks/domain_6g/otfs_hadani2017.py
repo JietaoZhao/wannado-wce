@@ -77,17 +77,27 @@ def provision_otfs_delay_doppler(config: OTFSConfig | None = None, **overrides: 
     scs_hz = cfg.subcarrier_spacing_khz * 1e3
     norm_doppler = fd_max / max(scs_hz, 1.0)
 
-    # Construct 2D Delay-Doppler channel impulse response H_dd[B, M, N]
+    # Construct physically grounded 2D Delay-Doppler channel H_dd[B, M, N]:
+    # Doppler resolution is delta_nu = scs_hz / N, so max Doppler tap index k_max = round((fd_max / scs_hz) * N).
     h_dd = torch.zeros((cfg.batch_size, cfg.m_delay_bins, cfg.n_doppler_bins), dtype=torch.complex64, device=dev)
     delay_taps = torch.randint(0, max(1, cfg.m_delay_bins // 4), (cfg.batch_size, cfg.num_paths), device=dev)
-    doppler_shifts = torch.randint(0, cfg.n_doppler_bins, (cfg.batch_size, cfg.num_paths), device=dev)
+    k_max = min(cfg.n_doppler_bins // 2, round(norm_doppler * cfg.n_doppler_bins))
+    if k_max > 0:
+        aoa_d = torch.rand((cfg.batch_size, cfg.num_paths), device=dev) * (2.0 * math.pi)
+        signed_k = torch.round(k_max * torch.cos(aoa_d)).to(torch.long)
+        doppler_shifts = torch.remainder(signed_k, cfg.n_doppler_bins)
+    else:
+        doppler_shifts = torch.zeros((cfg.batch_size, cfg.num_paths), dtype=torch.long, device=dev)
     gains = complex_normal((cfg.batch_size, cfg.num_paths), variance=1.0 / max(1, cfg.num_paths), device=dev)
 
     b_idx = torch.arange(cfg.batch_size, device=dev).unsqueeze(-1)
     h_dd.index_put_((b_idx, delay_taps, doppler_shifts), gains, accumulate=True)
 
-    # ISFFT to Time-Frequency grid H_tf = FFT_M(IFFT_N(H_dd)) (scaled to preserve energy)
-    h_tf = torch.fft.fft(torch.fft.ifft(h_dd, dim=-1, norm="ortho"), dim=-2, norm="ortho")
+    # ISFFT to Time-Frequency grid H_tf = sqrt(M*N) * FFT_M(IFFT_N(H_dd, norm='ortho'), norm='ortho')
+    # so E[|H_tf[m, n]|^2] == 1.0 matches unit-power physical TF fading.
+    h_tf = math.sqrt(float(cfg.m_delay_bins * cfg.n_doppler_bins)) * torch.fft.fft(
+        torch.fft.ifft(h_dd, dim=-1, norm="ortho"), dim=-2, norm="ortho"
+    )
 
     # Estimate normalized OFDM ICI floor ~ 1 - sinc^2(fd_max / scs) vs OTFS sparse tap fraction
     x_ici = min(norm_doppler, 0.9)

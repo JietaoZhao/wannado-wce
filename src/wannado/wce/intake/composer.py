@@ -117,11 +117,18 @@ def _extract_numeric_clues(query: str) -> dict[str, Any]:
 
     m_bw = re.search(r"(?:bw|bandwidth|带宽|频宽)[^0-9]{0,8}(\d+(?:\.\d+)?)\s*(mhz|ghz|khz)", q)
     if not m_bw:
-        # Second frequency-unit token if carrier already matched
-        tokens = list(re.finditer(r"(\d+(?:\.\d+)?)\s*(mhz|ghz)", q))
-        if len(tokens) >= 2:
-            val, unit = float(tokens[1].group(1)), tokens[1].group(2)
-            extracted["bandwidth_hz"] = val * (1e9 if unit == "ghz" else 1e6)
+        # Second frequency-unit token if carrier already matched (skip m_fc match & avoid parsing carrier GHz as BW)
+        tokens = list(re.finditer(r"(\d+(?:\.\d+)?)\s*(mhz|ghz|khz)\b", q))
+        if len(tokens) >= 2 and m_fc is not None:
+            for tok in tokens:
+                if tok.span() == m_fc.span():
+                    continue
+                val, unit = float(tok.group(1)), tok.group(2)
+                if unit == "ghz" and val > 10.0:
+                    continue
+                scale = {"khz": 1e3, "mhz": 1e6, "ghz": 1e9}[unit]
+                extracted["bandwidth_hz"] = val * scale
+                break
     else:
         val, unit = float(m_bw.group(1)), m_bw.group(2)
         scale = {"khz": 1e3, "mhz": 1e6, "ghz": 1e9}[unit]
@@ -165,7 +172,7 @@ def _extract_numeric_clues(query: str) -> dict[str, Any]:
     if m_orb:
         extracted["ntn_orbit_altitude_km"] = float(m_orb.group(1))
 
-    m_dist = re.search(r"(\d+(?:\.\d+)?)\s*m(?:eters?)?\s*(?:距离|distance|内|外|range)?", q)
+    m_dist = re.search(r"(\d+(?:\.\d+)?)\s*(?:m(?![a-z])|meters?\b)\s*(?:距离|distance|内|外|range)?", q)
     if m_dist and any(k in q for k in ("距离", "distance", "近场", "near-field", "nearfield", "米")):
         d_val = float(m_dist.group(1))
         if 0.5 <= d_val <= 2000.0:

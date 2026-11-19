@@ -532,6 +532,7 @@ def build_block_config(block_id: str, wce_spec: WCESpec | None = None, **overrid
             "num_tx_y": 1,
             "num_ris_elements": wce_spec.num_ris_elements if wce_spec.num_ris_elements > 0 else 64,
             "num_star_elements": wce_spec.num_ris_elements if wce_spec.num_ris_elements > 0 else 64,
+            "phase_bits": wce_spec.ris_phase_bits,
             "uav_altitude_m": wce_spec.uav_altitude_m,
             "orbit_altitude_km": wce_spec.ntn_orbit_altitude_km,
             "elevation_deg": wce_spec.ntn_elevation_deg,
@@ -676,7 +677,7 @@ def evaluate_wce_suite(
         timestamp_utc=datetime.now(timezone.utc).isoformat(),
         wce_spec=wce_spec,
         preflights=preflights,
-        baseline_blocks=list(baseline_blocks),
+        baseline_blocks=list(resolved_baselines),
         block_summaries=summaries,
         diagnostic_distributions=distributions,
     )

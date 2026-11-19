@@ -114,13 +114,15 @@ def provision_active_ris_flexible(config: ActiveRISFlexibleConfig | None = None,
         # Dynamic noise amplified by Active RIS traverses hop2 (factor sqrt(beta_2))
         n_v = complex_normal((cfg.batch_size, cfg.num_ris_elements), variance=noise_w * cfg.ris_thermal_noise_ratio, device=dev)
         noise_dyn = math.sqrt(beta_2) * torch.sum(h_out * phi_active * n_v, dim=-1)
-        snr_active = cascade_active.abs().pow(2) / (noise_w + noise_dyn.abs().pow(2))
+        # Analytical conditional dynamic noise variance (eliminates Jensen bias from single-sample |noise_dyn|^2)
+        dyn_noise_var = beta_2 * (noise_w * cfg.ris_thermal_noise_ratio) * torch.sum((h_out * phi_active).abs().pow(2), dim=-1)
+        snr_active = cascade_active.abs().pow(2) / (noise_w + dyn_noise_var)
         snr_passive = cascade_passive.abs().pow(2) / noise_w
         mean_amp = float(torch.mean(amp_eff).item())
         metrics = {
             "active_ris_effective_snr": float(torch.mean(snr_active).item()),
             "passive_ris_equivalent_snr": float(torch.mean(snr_passive).item()),
-            "dynamic_noise_power_ratio": float(torch.mean(noise_dyn.abs().pow(2)).item() / max(noise_w, 1e-30)),
+            "dynamic_noise_power_ratio": float(torch.mean(dyn_noise_var).item() / max(noise_w, 1e-30)),
             "active_gain_over_passive": float((torch.mean(snr_active) / torch.mean(snr_passive).clamp(min=1e-12)).item()),
             "effective_amp_modulus": mean_amp,
         }

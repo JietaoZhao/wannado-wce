@@ -118,29 +118,26 @@ def provision_tr38901_cdl_tdl(config: CDLTDLConfig | None = None, **overrides: A
         ray_coeff = complex_normal((cfg.batch_size, n_taps, n_sub), variance=1.0 / n_sub, device=dev)
         spatial_nlos = math.sqrt(cfg.num_tx * cfg.num_rx) * torch.einsum("blm,lmn,lmk->blnk", ray_coeff, a_rx, a_tx.conj())
         if has_los_ray:
-            k_lin = 10.0 ** (k_db / 10.0)
-            w_nlos = math.sqrt(1.0 / (k_lin + 1.0))
-            w_los = math.sqrt(k_lin / (k_lin + 1.0))
+            # TR 38.901 Tables 7.7.1-4/5: tap 0 IS the specular LoS component (power p_lin[0]) and taps 1..L-1
+            # are the Rayleigh clusters (including tap 1 at delay 0.0000), so p_lin already embodies k_db exactly.
             a_tx0 = ula_farfield_steering(cfg.num_tx, aod_rad[:1])
             a_rx0 = ula_farfield_steering(cfg.num_rx, aoa_rad[:1])
             phi0 = torch.rand((cfg.batch_size, 1, 1), device=dev) * (2.0 * math.pi)
             h_los0 = math.sqrt(cfg.num_tx * cfg.num_rx) * torch.complex(torch.cos(phi0), torch.sin(phi0)) * torch.einsum(
                 "ln,lm->lnm", a_rx0, a_tx0.conj()
             )
-            spatial = spatial_nlos * (w_nlos * torch.sqrt(p_lin)).view(1, n_taps, 1, 1)
-            # Combine specular LoS energy onto tap 0 (normalized over tap powers)
-            spatial[:, 0] = spatial[:, 0] + w_los * h_los0
+            spatial = spatial_nlos * torch.sqrt(p_lin).view(1, n_taps, 1, 1)
+            spatial[:, 0] = math.sqrt(float(p_lin[0].item())) * h_los0
         else:
             spatial = spatial_nlos * torch.sqrt(p_lin).view(1, n_taps, 1, 1)
     else:
         spatial_nlos = complex_normal((cfg.batch_size, n_taps, cfg.num_rx, cfg.num_tx), variance=1.0, device=dev)
         if has_los_ray:
-            k_lin = 10.0 ** (k_db / 10.0)
-            w_nlos = math.sqrt(1.0 / (k_lin + 1.0))
-            w_los = math.sqrt(k_lin / (k_lin + 1.0))
+            # TR 38.901 Tables 7.7.2-4/5: tap 0 IS the specular LoS component (power p_lin[0]) and taps 1..L-1
+            # are the Rayleigh taps (tap 1 at delay 0.0000 gives exact tap-1 Rician K = p_lin[0]/p_lin[1]).
             phi0 = torch.rand((cfg.batch_size, 1, 1), device=dev) * (2.0 * math.pi)
-            spatial = spatial_nlos * (w_nlos * torch.sqrt(p_lin)).view(1, n_taps, 1, 1)
-            spatial[:, 0] = spatial[:, 0] + w_los * torch.complex(torch.cos(phi0), torch.sin(phi0))
+            spatial = spatial_nlos * torch.sqrt(p_lin).view(1, n_taps, 1, 1)
+            spatial[:, 0] = math.sqrt(float(p_lin[0].item())) * torch.complex(torch.cos(phi0), torch.sin(phi0))
         else:
             spatial = spatial_nlos * torch.sqrt(p_lin).view(1, n_taps, 1, 1)
 

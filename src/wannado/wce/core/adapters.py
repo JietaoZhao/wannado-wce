@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import torch
@@ -25,11 +25,13 @@ class ChannelModuleAdapter(nn.Module):
         *,
         snr_db: float = 15.0,
         add_noise: bool = True,
+        reference_tx_power: float | None = 1.0,
     ) -> None:
         super().__init__()
         self.channel_sampler = channel_sampler
         self.snr_db = float(snr_db)
         self.add_noise = bool(add_noise)
+        self.reference_tx_power = reference_tx_power
 
     def forward(self, x_tx: torch.Tensor, *, h: torch.Tensor | None = None) -> torch.Tensor:
         batch = x_tx.shape[0]
@@ -45,8 +47,17 @@ class ChannelModuleAdapter(nn.Module):
         if not self.add_noise:
             return y
 
-        sig_pow = torch.mean(y.abs().pow(2)).clamp(min=1e-12)
-        noise_var = sig_pow / (10.0 ** (self.snr_db / 10.0))
+        # Fixed reference thermal noise floor (or detached sig_pow when reference_tx_power is None) so TX power
+        # scaling changes output SNR physically and autograd d(y)/d(x) == H without noise-variance gradient leakage.
+        if self.reference_tx_power is not None:
+            noise_var = torch.tensor(
+                float(self.reference_tx_power) / (10.0 ** (self.snr_db / 10.0)),
+                device=y.device,
+                dtype=y.real.dtype,
+            )
+        else:
+            sig_pow = torch.mean(y.detach().abs().pow(2)).clamp(min=1e-12)
+            noise_var = sig_pow / (10.0 ** (self.snr_db / 10.0))
         std_each = torch.sqrt(noise_var / 2.0)
         noise = torch.complex(
             torch.randn_like(y.real) * std_each,
@@ -84,8 +95,18 @@ class SimpleDiscreteSpace:
         return int(gen.integers(0, self.n))
 
 
-class WirelessGymEnvAdapter:
-    """Lightweight Gymnasium-compatible environment wrapper (works with or without gymnasium installed)."""
+try:
+    import gymnasium as _gym
+
+    _GymBase: type[Any] = _gym.Env
+except Exception:  # noqa: BLE001
+    _GymBase = object
+
+
+class WirelessGymEnvAdapter(_GymBase):  # type: ignore[misc]
+    """Gymnasium-compatible environment wrapper (inherits ``gymnasium.Env`` when gymnasium is installed)."""
+
+    metadata: ClassVar[dict[str, Any]] = {"render_modes": []}
 
     def __init__(
         self,
@@ -97,6 +118,8 @@ class WirelessGymEnvAdapter:
         step_fn: Callable[[Any], tuple[np.ndarray, float, bool, bool, dict[str, Any]]] | None = None,
         max_steps: int = 200,
     ) -> None:
+        if _GymBase is not object:
+            super().__init__()
         self.obs_dim = int(obs_dim)
         self.action_dim = int(action_dim)
         self.discrete_actions = bool(discrete_actions)

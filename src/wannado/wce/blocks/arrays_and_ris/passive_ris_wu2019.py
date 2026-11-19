@@ -97,10 +97,10 @@ def provision_passive_ris_cascade(config: PassiveRISConfig | None = None, **over
     # Optimal SISO-equivalent / MRT co-phasing aligned to dominant BS beamforming vector w = h_d / ||h_d|| or leading link
     # For single-stream MRT direction u_bs = G[0]^H h_r^* or direct-link phase alignment:
     cascaded_prod = h_r.conj().unsqueeze(-1) * g_mat * cfg.ris_cascade_gain_scale  # (B, M, Nt)
-    # Maximize || h_d + sum_m phi_m * cascaded_prod_m ||^2 via rank-1 alternating alignment
+    # Maximize |<h_d + sum_m phi_m * cascaded_prod_m, w_bs>| via conjugate inner product with w_bs = h_d / ||h_d||
     w_bs = h_d / torch.linalg.norm(h_d, dim=-1, keepdim=True).clamp(min=1e-8)
-    proj = torch.einsum("bmn,bn->bm", cascaded_prod, w_bs)
-    ref_phase = torch.angle(torch.sum(h_d.conj() * w_bs, dim=-1, keepdim=True))
+    proj = torch.einsum("bmn,bn->bm", cascaded_prod, w_bs.conj())
+    ref_phase = torch.angle(torch.sum(h_d * w_bs.conj(), dim=-1, keepdim=True))
     theta_opt = _quantize_phases(ref_phase - torch.angle(proj), cfg.phase_bits)
     phi_opt = torch.complex(torch.cos(theta_opt), torch.sin(theta_opt)).to(torch.complex64)
 

@@ -116,18 +116,22 @@ def upa_farfield_steering(
     *,
     spacing_lambda: float = 0.5,
 ) -> torch.Tensor:
-    """Far-field 2D UPA unit-norm steering vector a(phi, theta) = a_x kron a_y, shape (..., nx*ny)."""
-    sin_theta = torch.sin(elevation_rad)
-    u_x = torch.cos(azimuth_rad) * sin_theta
-    u_y = torch.sin(azimuth_rad) * sin_theta
+    """Far-field 2D UPA unit-norm steering vector matching centered x-z ``upa_element_coordinates`` (+y broadside).
 
-    ix = torch.arange(nx, device=azimuth_rad.device, dtype=torch.float32)
-    iy = torch.arange(ny, device=azimuth_rad.device, dtype=torch.float32)
-    px = -2.0 * math.pi * spacing_lambda * u_x.unsqueeze(-1) * ix
-    py = -2.0 * math.pi * spacing_lambda * u_y.unsqueeze(-1) * iy
+    Consistent with ``nearfield_spherical_steering`` in the far-field limit r -> inf for unit direction
+    ``u_hat = [sin(azimuth)*sin(elevation), cos(azimuth)*sin(elevation), cos(elevation)]``.
+    """
+    sin_el = torch.sin(elevation_rad)
+    u_x = torch.sin(azimuth_rad) * sin_el
+    u_z = torch.cos(elevation_rad)
+
+    ix = torch.arange(nx, device=azimuth_rad.device, dtype=torch.float32) - 0.5 * (nx - 1)
+    iz = torch.arange(ny, device=azimuth_rad.device, dtype=torch.float32) - 0.5 * (ny - 1)
+    px = 2.0 * math.pi * spacing_lambda * u_x.unsqueeze(-1) * ix
+    pz = 2.0 * math.pi * spacing_lambda * u_z.unsqueeze(-1) * iz
     ax = torch.complex(torch.cos(px), torch.sin(px))
-    ay = torch.complex(torch.cos(py), torch.sin(py))
-    kron = (ax.unsqueeze(-1) * ay.unsqueeze(-2)).reshape(*azimuth_rad.shape, nx * ny)
+    az = torch.complex(torch.cos(pz), torch.sin(pz))
+    kron = (ax.unsqueeze(-1) * az.unsqueeze(-2)).reshape(*azimuth_rad.shape, nx * ny)
     return (kron / math.sqrt(max(1, nx * ny))).to(torch.complex64)
 
 
@@ -166,11 +170,17 @@ def nearfield_spherical_steering(
     lam = wavelength_m(fc_hz)
     k0 = 2.0 * math.pi / lam
     center = element_coords.mean(dim=0)
-    r_ref = torch.norm(target_coords - center, dim=-1, keepdim=True).clamp(min=1e-4)
+    d_vec = target_coords - center  # (..., 3)
+    elem_rel = element_coords - center  # (N, 3)
+    r_ref = torch.norm(d_vec, dim=-1, keepdim=True).clamp(min=1e-4)
     # Broadcast distance from every array element n to every target position
     diff = target_coords.unsqueeze(-2) - element_coords
     r_n = torch.norm(diff, dim=-1).clamp(min=1e-4)
-    phase = -k0 * (r_n - r_ref)
+    # Cancellation-free algebraic identity: r_n - r_ref = (||elem_rel||^2 - 2 d_vec · elem_rel) / (r_n + r_ref)
+    elem_sq = torch.sum(elem_rel.pow(2), dim=-1)  # (N,)
+    dot_de = torch.einsum("...c,nc->...n", d_vec, elem_rel)
+    delta_r = (elem_sq - 2.0 * dot_de) / (r_n + r_ref).clamp(min=1e-4)
+    phase = -k0 * delta_r
     amp = (r_ref / r_n) if include_amplitude_variation else torch.ones_like(r_n)
     vec = amp * torch.complex(torch.cos(phase), torch.sin(phase))
     norm_factor = torch.sqrt(torch.sum(amp.pow(2), dim=-1, keepdim=True)).clamp(min=1e-8)

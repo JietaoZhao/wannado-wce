@@ -201,6 +201,7 @@ def build_wce_archetype(archetype: str = "imt2030_immersive_xr", *, problem_name
             noise_figure_db=7.0,
             num_tx=8,
             num_rx=1,
+            num_ris_elements=64,
             aperture_m=0.30,
             min_tx_rx_distance_m=50.0,
             max_speed_mps=18.0,

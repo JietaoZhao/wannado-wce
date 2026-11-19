@@ -116,7 +116,7 @@ def provision_rayleigh_clarke(config: RayleighClarkeConfig | None = None, **over
         tensors={"h": h, "t_sec": t_grid},
         metrics={
             "max_doppler_hz": fd,
-            "coherence_time_ms": tc * 1e3 if math.isfinite(tc) else float("inf"),
+            "coherence_time_ms": min(tc * 1e3, 1e6) if math.isfinite(tc) else 1e6,
             "theoretical_lag1_autocorr": theo_lag1,
             "empirical_lag1_autocorr": emp_lag1,
             "autocorr_abs_error": abs(emp_lag1 - theo_lag1),

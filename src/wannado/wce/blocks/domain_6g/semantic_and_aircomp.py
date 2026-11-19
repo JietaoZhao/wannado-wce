@@ -98,10 +98,13 @@ def provision_semantic_aircomp_channel(config: SemanticAirCompConfig | None = No
     h_cf = complex_normal((cfg.batch_size, cfg.num_cellfree_aps, cfg.num_edge_devices), device=dev) * torch.sqrt(beta).unsqueeze(0)
     # Coherent MRC combining across APs -> effective scalar channel gain per device
     eff_gain = torch.sum(h_cf.abs().pow(2), dim=1)  # (B, K)
-    # Truncated channel inversion AirComp MSE (Zhu et al., 2020)
+    # Truncated channel inversion AirComp MSE (Zhu et al., IEEE TWC 2020):
+    # Active devices (g_k >= gamma_th) invert to common alignment threshold sqrt(gamma_th), so receiver
+    # thermal noise variance scales inversely with gamma_th (not mean(eff_gain)).
     snr_lin = float(db_to_linear(cfg.snr_db))
     participating = (eff_gain >= cfg.aircomp_cutoff_gamma_th).float()
-    agg_noise_mse = 1.0 / (snr_lin * torch.clamp(torch.mean(eff_gain, dim=-1), min=1e-6))
+    k_active = torch.clamp(torch.sum(participating, dim=-1), min=1.0)
+    agg_noise_mse = 1.0 / (snr_lin * max(float(cfg.aircomp_cutoff_gamma_th), 1e-6) * k_active)
     dropout_mse = torch.mean(1.0 - participating, dim=-1)
     aircomp_mse = float(torch.mean(agg_noise_mse + dropout_mse).item())
 

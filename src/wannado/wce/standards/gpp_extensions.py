@@ -65,6 +65,14 @@ NTN_ELEVATION_TABLE: dict[str, dict[int, tuple[float, float, float, float]]] = {
     },
 }
 
+# TR 38.811 Table 6.6.2-1 / 6.6.2-2 / 6.6.2-3 S-band NLOS shadow fading std (dB)
+_NTN_SBAND_SF_NLOS: dict[str, dict[int, float]] = {
+    "dense_urban": {10: 15.5, 20: 13.9, 30: 12.4, 40: 11.7, 50: 10.6, 60: 10.0, 70: 9.5, 80: 9.0, 90: 8.8},
+    "urban": {10: 15.5, 20: 13.9, 30: 12.4, 40: 11.7, 50: 10.6, 60: 9.8, 70: 9.2, 80: 8.8, 90: 8.5},
+    "suburban": {10: 8.9, 20: 8.9, 30: 8.4, 40: 8.0, 50: 7.6, 60: 7.3, 70: 7.0, 80: 6.8, 90: 6.5},
+    "rural": {10: 8.9, 20: 8.4, 30: 7.9, 40: 7.5, 50: 7.1, 60: 6.8, 70: 6.5, 80: 6.3, 90: 6.0},
+}
+
 # TR 38.811 Table 6.6.2-1 / 6.6.2-2 / 6.6.2-3 Ka-band NLOS clutter loss (dB) & NLOS SF std (dB)
 _NTN_KABAND_CL_NLOS: dict[str, dict[int, tuple[float, float]]] = {
     "dense_urban": {10: (44.3, 15.5), 20: (39.9, 13.9), 30: (37.5, 12.4), 40: (35.8, 11.7), 50: (34.6, 10.6), 60: (33.8, 10.0), 70: (33.3, 9.5), 80: (33.0, 9.0), 90: (32.9, 8.8)},
@@ -112,7 +120,9 @@ def interpolate_ntn_params(
         sf_nlos_db = float(np.interp(elev, angles, ka_arr[:, 1]))
     else:
         clutter_loss_db = float(np.interp(elev, angles, cl_vals))
-        sf_nlos_db = float(max(sf_los, min(12.0, 2.0 * sf_los)))
+        s_sf_tab = _NTN_SBAND_SF_NLOS[key]
+        s_sf_arr = np.array([s_sf_tab[int(a)] for a in angles], dtype=np.float64)
+        sf_nlos_db = float(np.interp(elev, angles, s_sf_arr))
 
     return {
         "los_prob": float(np.interp(elev, angles, vals[:, 0])),
@@ -182,40 +192,46 @@ def compute_uav_tr36777_pathloss(
     is_los: bool = True,
 ) -> tuple[np.ndarray, float]:
     """Compute UAV aerial pathloss & shadowing per 3GPP TR 36.777 Annex B (up to 300 m height)."""
+    from wannado.wce.standards.gpp_38901 import compute_pathloss_tr38901_db
+
     scen = _normalize_uav_scenario(scenario)
     d2 = np.maximum(np.asarray(d_2d_m, dtype=np.float64), 1.0)
     h_uav = float(np.clip(h_uav_m, 1.5, 300.0))
     h_bs = {"UMa-AV": 25.0, "UMi-AV": 10.0, "RMa-AV": 35.0}[scen]
+
+    # TR 36.777 Table B-2 delegates low-altitude UAVs to terrestrial TR 38.901 pathloss
+    if (scen in ("UMa-AV", "UMi-AV") and h_uav <= 22.5) or (scen == "RMa-AV" and h_uav <= 10.0):
+        base_scen = scen.split("-")[0]
+        pl_t, sf_t = compute_pathloss_tr38901_db(base_scen, d2, fc_ghz, is_los=is_los, h_bs_m=h_bs, h_ut_m=h_uav)
+        sf_scalar = float(np.mean(sf_t)) if isinstance(sf_t, np.ndarray) else float(sf_t)
+        return pl_t, sf_scalar
+
     d3 = np.sqrt(d2 ** 2 + (h_uav - h_bs) ** 2)
     fc = float(fc_ghz)
 
     if scen == "UMa-AV":
+        pl_los = 28.0 + 22.0 * np.log10(d3) + 20.0 * math.log10(fc)
         if is_los:
-            pl = 28.0 + 22.0 * np.log10(d3) + 20.0 * math.log10(fc)
-            sf = 4.64 * math.exp(-0.0066 * h_uav)
-        else:
-            pl = -17.5 + (46.0 - 7.0 * math.log10(h_uav)) * np.log10(d3) + 20.0 * math.log10(40.0 * math.pi * fc / 3.0)
-            sf = 6.0
-        return pl, float(sf)
+            return pl_los, float(4.64 * math.exp(-0.0066 * h_uav))
+        pl_nlos_raw = -17.5 + (46.0 - 7.0 * math.log10(h_uav)) * np.log10(d3) + 20.0 * math.log10(40.0 * math.pi * fc / 3.0)
+        return np.maximum(pl_los, pl_nlos_raw), 6.0
 
     if scen == "UMi-AV":
+        # TR 36.777 Table B-2 UMi-AV LOS = max(FSPL, 30.9 + (22.25 - 0.5*log10(h))*log10(d3) + 20*log10(fc))
+        pl_fspl = 32.4 + 20.0 * np.log10(d3) + 20.0 * math.log10(fc)
+        pl_los = np.maximum(pl_fspl, 30.9 + (22.25 - 0.5 * math.log10(h_uav)) * np.log10(d3) + 20.0 * math.log10(fc))
         if is_los:
-            pl = np.maximum(28.0 + 22.0 * np.log10(d3) + 20.0 * math.log10(fc), 30.9 + (22.25 - 0.5 * math.log10(h_uav)) * np.log10(d3) + 20.0 * math.log10(fc))
-            sf = max(2.0, 5.0 * math.exp(-0.01 * h_uav))
-        else:
-            pl = 32.4 + (43.2 - 7.6 * math.log10(h_uav)) * np.log10(d3) + 20.0 * math.log10(fc)
-            sf = 8.0
-        return pl, float(sf)
+            return pl_los, float(max(2.0, 5.0 * math.exp(-0.01 * h_uav)))
+        pl_nlos_raw = 32.4 + (43.2 - 7.6 * math.log10(h_uav)) * np.log10(d3) + 20.0 * math.log10(fc)
+        return np.maximum(pl_los, pl_nlos_raw), 8.0
 
-    # RMa-AV (3GPP TR 36.777 Table B-1)
+    # RMa-AV (3GPP TR 36.777 Table B-2)
+    slope = max(23.9 - 1.8 * math.log10(h_uav), 20.0)
+    pl_los = slope * np.log10(d3) + 20.0 * math.log10(40.0 * math.pi * fc / 3.0)
     if is_los:
-        slope = max(23.9 - 1.8 * math.log10(h_uav), 20.0)
-        pl = slope * np.log10(d3) + 20.0 * math.log10(40.0 * math.pi * fc / 3.0)
-        sf = 4.2 * math.exp(-0.0046 * h_uav)
-    else:
-        pl = -12.0 + (35.0 - 5.3 * math.log10(h_uav)) * np.log10(d3) + 20.0 * math.log10(40.0 * math.pi * fc / 3.0)
-        sf = 6.0
-    return pl, float(sf)
+        return pl_los, float(4.2 * math.exp(-0.0046 * h_uav))
+    pl_nlos_raw = -12.0 + (35.0 - 5.3 * math.log10(h_uav)) * np.log10(d3) + 20.0 * math.log10(40.0 * math.pi * fc / 3.0)
+    return np.maximum(pl_los, pl_nlos_raw), 6.0
 
 
 def compute_v2x_tr37885_pathloss(
@@ -225,24 +241,23 @@ def compute_v2x_tr37885_pathloss(
     *,
     state: Literal["LOS", "NLOSv", "NLOS"] = "LOS",
 ) -> tuple[np.ndarray, float]:
-    """Compute V2V/V2I sidelink pathloss & shadow fading std per 3GPP TR 37.885 Clause 6."""
+    """Compute V2V/V2I sidelink pathloss & shadow fading std per 3GPP TR 37.885 Table 6.2.1-1."""
     d = np.maximum(np.asarray(d_m, dtype=np.float64), 1.0)
     fc = float(fc_ghz)
     if scenario == "urban_grid":
         pl_los = 38.77 + 16.7 * np.log10(d) + 18.2 * math.log10(fc)
         if state == "LOS":
-            return pl_los, 5.2
+            return pl_los, 3.0
         if state == "NLOSv":
-            return pl_los + 15.0, 5.2
+            return pl_los + 15.0, 3.0
         pl_nlos = 36.85 + 30.0 * np.log10(d) + 18.9 * math.log10(fc)
-        return np.maximum(pl_los, pl_nlos), 5.2
+        return np.maximum(pl_los, pl_nlos), 4.0
 
-    # Highway two-slope model with d_BP = 80 m (TR 37.885 Table 6.2.1-1)
+    # Highway single-slope LOS model (TR 37.885 Table 6.2.1-1: 32.4 + 20*log10(d) + 20*log10(fc), sigma_SF = 3 dB)
     pl_los = 32.4 + 20.0 * np.log10(d) + 20.0 * math.log10(fc)
-    pl_bp = np.where(d <= 80.0, pl_los, pl_los + 12.0 * np.log10(d / 80.0))
     if state == "NLOSv":
-        return pl_bp + 15.0, 3.3
+        return pl_los + 15.0, 3.0
     if state == "NLOS":
-        pl_nlos = np.maximum(pl_bp, 36.85 + 30.0 * np.log10(d) + 18.9 * math.log10(fc))
-        return pl_nlos, 5.2
-    return pl_bp, 3.3
+        pl_nlos = np.maximum(pl_los, 36.85 + 30.0 * np.log10(d) + 18.9 * math.log10(fc))
+        return pl_nlos, 4.0
+    return pl_los, 3.0

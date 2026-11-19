@@ -134,7 +134,10 @@ def provision_ntn_leo_satellite(config: NTNLEOConfig | None = None, **overrides:
     w_los = math.sqrt(k_lin / (k_lin + 1.0))
     w_nlos = math.sqrt(1.0 / (k_lin + 1.0))
     h_nlos = complex_normal((cfg.num_samples, 1), variance=1.0, device=dev)
-    h_small = (w_los * torch.ones_like(h_nlos) + w_nlos * h_nlos).to(torch.complex64)
+    los_t = torch.from_numpy(is_los.astype(np.bool_)).to(dev).unsqueeze(-1)
+    h_rician = w_los * torch.ones_like(h_nlos) + w_nlos * h_nlos
+    # Apply Rician K-factor strictly to LoS samples; NLoS links follow pure Rayleigh fading (TR 38.811)
+    h_small = torch.where(los_t, h_rician, h_nlos).to(torch.complex64)
 
     prov = [
         ParamProvenance("orbit_altitude_km", cfg.orbit_altitude_km, "km", "LEO satellite altitude", "gpp_tr38821", "Clause 5.1", "3gpp_tr38821", "Standard TR 38.821 600 km / 1200 km LEO reference orbit."),

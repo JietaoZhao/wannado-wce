@@ -2,6 +2,26 @@
 
 All notable changes to `wannado-wce` will be documented in this file.
 
+## [1.2.1] - 2026-11-19
+
+### Fixed
+- **Cold-start `reporter <-> audit` circular import**: Converted `WCEVerifyReport`/`verify_wce_target` to PEP 562 lazy exports in `wannado.wce.audit` and deferred `build_block_config` import inside `verify_wce_target`, enabling order-independent cold imports across all submodules.
+- **CLI Flag Parity (`wannado-wce verify` & `jit-recipe`)**: Added `--dir` alias to `wannado-wce verify` (auto-resolving `interface.py` or `wce_spec.json/.yaml`) and `--require-live` flag to `wannado-wce jit-recipe` forwarding to `verify_jit_adapter_file(require_live=...)`.
+- **Link-Level OFDM-MIMO PHY Rigor (`workspace/link_level_phy.py`)**:
+  - Fixed `_gray_pam_levels` Gray-code bit mapping so every adjacent QPSK/16QAM/64QAM amplitude level differs by exactly 1 bit (0 non-Gray pairs).
+  - Replaced silent TX antenna truncation (`Nt > n_streams`) with wideband unitary eigenbeamforming precoding (`V^H V = I`) utilizing all `Nt` antennas while preserving subcarrier phase continuity.
+  - Replaced hardcoded `[0.2, 0.6, 0.2]` LMMSE smoothing with a true causal Wiener frequency-correlation LMMSE estimator estimated directly from noisy pilots (outperforming LS on both flat and wideband CDL-C channels).
+  - Upgraded `_build_ldpc_parity_matrix` to girth >= 6 (0 length-4 cycles across `[H_u | H_p]`) and added optional time-domain OFDM IFFT + Cyclic Prefix + tapped-delay convolution (`cp_length`) exposing genuine ISI when max delay exceeds CP.
+- **3GPP Standards & Channel Calibration (`standards/gpp_38901.py`, `gpp_extensions.py`, `tr38901_cdl_tdl.py`, `tr38811_ntn_leo.py`)**:
+  - Restored complete 3GPP TR 38.901 Tables 7.7.1-1..5 (CDL-A..E) and 7.7.2-1..5 (TDL-A..E) with exact tap-0 LoS + tap-1 Rayleigh alignment (all 10 profiles normalized RMS delay spread `1.000 ± 0.007`, exact `K=13.3/22.0 dB` without double counting).
+  - Fixed RMa LOS post-breakpoint shadowing (`6.0 dB`), InF-DL NLOS `max(PL_DL, PL_LOS, PL_SL)`, TR 36.777 UAV `h <= 22.5 m` delegation + `max(PL_LOS, PL_NLOS)` + UMi-AV FSPL baseline, TR 38.811 S-band `sf_nlos_db` + LoS-only Rician K-factor, and TR 37.885 Table 6.2.1-1 Urban/Highway pathloss & shadowing.
+- **Cross-Domain Polyanskiy FBL, RIS, ISAC & Composed Environment (`workspace/cross_domain.py`, `composed_env.py`, `passive_ris_wu2019.py`, `active_ris_and_flexible_antennas.py`, `core/geometry.py`, `core/adapters.py`)**:
+  - Removed extraneous `ln(2)` factor and aligned `req_se = bits / n_sym` in `AutonomousLinkDelayModel` Polyanskiy FBL BLER.
+  - Fixed missing `.conj()` on `w_bs` in `passive_ris_wu2019.py`, eliminated single-sample Jensen SNR bias in `active_ris_and_flexible_antennas.py`, enforced strict passive/STAR RIS `|phi| <= 1.0` conservation, preserved specular LoS across AR(1) slots, replaced one-way ISAC sensing SNR with two-way $1/R^4$ radar equation, removed `0.05` FBL floor above Shannon capacity, included RIS cascade in `sample_channel_tensor()`, and removed non-causal `num_tx` pilot boost in `ComposedWirelessEnv`.
+  - Unified `upa_farfield_steering` and `upa_element_coordinates` (`x-z` vertical array, `+y` broadside) so near-field spherical steering converges to `|<b_near, a_far>|^2 == 1.0000` at far distances.
+  - Hardened `RigorAuditor 2.0` & `verify_gate` (check `.imag` finiteness, NaN-safe power/SNR checks, all channel tensor keys, `aperture_m <= 0`, empty `parameter_provenance`, direct `phi*` modulus checks, complete-outage PHY failure).
+  - Fixed `ls_lmmse_csi` citation key (`3gpp_tr38843`), `rayleigh_clarke` finite `coherence_time_ms` at `speed_mps=0`, physically coupled OTFS Doppler taps & unit-power `h_tf`, AirComp `gamma_th` truncation noise denominator, `ChannelModuleAdapter` fixed thermal noise floor, `WirelessGymEnvAdapter` inheriting `gymnasium.Env`, composer `"100 mhz"` / `"28 GHz"` regexes, `build_block_config` `phase_bits` forwarding, `WCEReport.baseline_blocks` population, and `uav_ris_relay` `num_ris_elements=64`.
+
 ## [1.2.0] - 2026-11-19
 
 ### Added

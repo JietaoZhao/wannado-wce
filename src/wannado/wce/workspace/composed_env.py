@@ -347,10 +347,12 @@ class ComposedWirelessEnv:
         h_scat = self._draw_complex_cn((self.batch_size, self._n_rx, self._n_tx))
         h_los_sp = self._build_spatial_manifold_los(self.batch_size, self._dists_2d)
         self._los_steering_base = h_los_sp
-        k_ratio = np.where(self._is_los, 4.0, 0.0)[:, None, None]
-        self._h_state = (np.sqrt(k_ratio / (k_ratio + 1.0)) * h_los_sp + np.sqrt(1.0 / (k_ratio + 1.0)) * h_scat).astype(
-            np.complex64
-        )
+        self._h_nlos_state = h_scat.copy()
+        self._k_ratio = np.where(self._is_los, 4.0, 0.0)[:, None, None]
+        self._h_state = (
+            np.sqrt(self._k_ratio / (self._k_ratio + 1.0)) * h_los_sp
+            + np.sqrt(1.0 / (self._k_ratio + 1.0)) * self._h_nlos_state
+        ).astype(np.complex64)
         self._h_prev_csi = self._h_state.copy()
 
         # Two-hop RIS matrix channels G[B, M, Nt] and H_r[B, Nr, M] (when RIS active)
@@ -387,6 +389,20 @@ class ComposedWirelessEnv:
         h_los = self._build_spatial_manifold_los(b, d_sub)
         k_ratio = np.where(los_mask, 4.0, 0.0)[:, None, None]
         h_out = (np.sqrt(k_ratio / (k_ratio + 1.0)) * h_los + np.sqrt(1.0 / (k_ratio + 1.0)) * h_scat).astype(np.complex64)
+        if self._has_ris and self._n_ris > 0:
+            g_s = self._draw_complex_cn((b, self._n_ris, self._n_tx))
+            hr_s = self._draw_complex_cn((b, self._n_rx, self._n_ris))
+            h_ref = h_out[:, 0, :]
+            v_d = h_ref.conj() / np.maximum(np.linalg.norm(h_ref, axis=-1, keepdims=True), 1e-9)
+            g_p = np.einsum("bmk,bk->bm", g_s, v_d)
+            theta_s = _quantize_phase(-np.angle(hr_s[:, 0, :] * g_p), int(self.spec.ris_phase_bits))
+            amp_s = math.sqrt(0.5) if "star_ris" in self._blocks else (2.0 if "active_ris_flexible" in self._blocks else 1.0)
+            phi_s = amp_s * np.exp(1j * theta_s)
+            ris_base = 0.04 if "active_ris_flexible" in self._blocks else 0.08
+            h_out = (h_out + ris_base * np.einsum("bnm,bm,bmk->bnk", hr_s, phi_s, g_s)).astype(np.complex64)
+            mean_p = float(np.mean(np.abs(h_out) ** 2))
+            if mean_p > 1e-12:
+                h_out = (h_out / math.sqrt(mean_p)).astype(np.complex64)
         return torch.from_numpy(h_out)
 
     def _draw_slot_arrivals_bits(self) -> np.ndarray:
@@ -499,11 +515,15 @@ class ComposedWirelessEnv:
         if ris_scale is not None:
             act_ris_mult *= max(0.0, float(ris_scale))
 
-        # Temporal Clarke J0(2*pi*f_d*dt) autoregressive step preserving unit entry variance
+        # Temporal Clarke J0(2*pi*f_d*dt) autoregressive step on NLoS scatterers while preserving specular LoS manifold
         rho = self.temporal_rho
         if self._slot_idx > 0:
             innov = self._draw_complex_cn((self.batch_size, self._n_rx, self._n_tx))
-            self._h_state = (rho * self._h_state + math.sqrt(max(0.0, 1.0 - rho * rho)) * innov).astype(np.complex64)
+            self._h_nlos_state = (rho * self._h_nlos_state + math.sqrt(max(0.0, 1.0 - rho * rho)) * innov).astype(np.complex64)
+            self._h_state = (
+                np.sqrt(self._k_ratio / (self._k_ratio + 1.0)) * self._los_steering_base
+                + np.sqrt(1.0 / (self._k_ratio + 1.0)) * self._h_nlos_state
+            ).astype(np.complex64)
             if self._g_ris is not None and self._hr_ris is not None:
                 in_g = self._draw_complex_cn((self.batch_size, self._n_ris, self._n_tx))
                 in_r = self._draw_complex_cn((self.batch_size, self._n_rx, self._n_ris))
@@ -512,9 +532,9 @@ class ComposedWirelessEnv:
 
         h_small_t = torch.from_numpy(self._h_state.copy())
 
-        # Layer 3a (Causal CSI construction BEFORE beamforming/RIS phase design -> never leaks future!)
+        # Layer 3a (Causal CSI construction BEFORE beamforming/RIS phase design -> never leaks future or beamforming gain!)
         nominal_snr_est = np.maximum(
-            (self.tx_w * act_power_mult) * self._large_scale_gain * float(self._n_tx) / max(self.noise_w, 1e-30),
+            (self.tx_w * act_power_mult) * self._large_scale_gain / max(self.noise_w, 1e-30),
             0.1,
         )
         if self.spec.csi_assumption == "ideal_genie_baseline":
@@ -557,29 +577,33 @@ class ComposedWirelessEnv:
             # Link-budget calibrated cascade coupling scale: each passive RIS element reflects a small
             # normalized fraction of the direct link so M meta-atoms provide O(sqrt(M))..O(M) coherent array gain.
             ris_scale_base = 0.08
-            if "star_ris" in self._blocks:
-                amp_mod = math.sqrt(0.5)
-                max_ris_mod = 1.0
+            if "active_ris_flexible" in self._blocks:
+                # Active RIS gain calibrated with hop-2 amplified thermal noise floor (Zhang 2023)
+                ris_amp = 2.0 * math.sqrt(max(act_ris_mult, 0.01))
+                phi_vec = ris_amp * np.exp(1j * phi_theta)
+                max_ris_mod = float(np.max(np.abs(phi_vec)))
+                cascade_true = (0.65 * ris_scale_base) * np.einsum("bnm,bm,bmk->bnk", self._hr_ris, phi_vec, self._g_ris)
+                cascade_est = (0.65 * ris_scale_base) * np.einsum("bnm,bm,bmk->bnk", hr_csi, phi_vec, g_csi)
+                hr_energy = np.mean(np.abs(self._hr_ris) ** 2, axis=(1, 2))
+                active_ris_noise_w = max(ris_amp ** 2 - 1.0, 0.0) * 0.12 * self.noise_w * hr_energy
+            elif "star_ris" in self._blocks:
+                # Passive STAR-RIS energy conservation: |beta_t|^2 + |beta_r|^2 <= 1 -> |phi_m| <= sqrt(0.5) <= 1.0
+                passive_atten = min(max(act_ris_mult, 0.0), 1.0)
+                amp_mod = math.sqrt(0.5) * passive_atten
                 phi_vec = amp_mod * np.exp(1j * phi_theta)
+                max_ris_mod = float(np.max(np.abs(phi_vec)))
                 cascade_true = ris_scale_base * np.einsum("bnm,bm,bmk->bnk", self._hr_ris, phi_vec, self._g_ris)
                 cascade_est = ris_scale_base * np.einsum("bnm,bm,bmk->bnk", hr_csi, phi_vec, g_csi)
-            elif "active_ris_flexible" in self._blocks:
-                # Active RIS gain calibrated with hop-2 amplified thermal noise floor (Zhang 2023)
-                ris_amp = 2.0 * math.sqrt(act_ris_mult)
-                max_ris_mod = float(ris_amp)
-                phi_vec = ris_amp * np.exp(1j * phi_theta)
-                cascade_true = (0.5 * ris_scale_base) * np.einsum("bnm,bm,bmk->bnk", self._hr_ris, phi_vec, self._g_ris)
-                cascade_est = (0.5 * ris_scale_base) * np.einsum("bnm,bm,bmk->bnk", hr_csi, phi_vec, g_csi)
-                hr_energy = np.mean(np.abs(self._hr_ris) ** 2, axis=(1, 2))
-                active_ris_noise_w = (ris_amp ** 2 - 1.0) * 0.12 * self.noise_w * hr_energy
             else:
-                max_ris_mod = 1.0
-                phi_vec = np.exp(1j * phi_theta)
+                # Passive RIS energy conservation: |phi_m| <= 1.0 strictly (never amplify above unity)
+                passive_atten = min(max(act_ris_mult, 0.0), 1.0)
+                phi_vec = passive_atten * np.exp(1j * phi_theta)
+                max_ris_mod = float(np.max(np.abs(phi_vec)))
                 cascade_true = ris_scale_base * np.einsum("bnm,bm,bmk->bnk", self._hr_ris, phi_vec, self._g_ris)
                 cascade_est = ris_scale_base * np.einsum("bnm,bm,bmk->bnk", hr_csi, phi_vec, g_csi)
 
-            h_eff_true = self._h_state + act_ris_mult * cascade_true
-            h_eff_est = h_csi_d + act_ris_mult * cascade_est
+            h_eff_true = self._h_state + cascade_true
+            h_eff_est = h_csi_d + cascade_est
         else:
             h_eff_true = self._h_state
             h_eff_est = h_csi_d
@@ -608,7 +632,17 @@ class ComposedWirelessEnv:
             comm_frac = 0.6
             rx_w = raw_rx_w * comm_frac
             total_sense_noise = np.maximum(self.noise_w + active_ris_noise_w, 1e-30)
-            sensing_snr = np.maximum(raw_rx_w * (1.0 - comm_frac) / total_sense_noise, 1e-6)
+            # True two-way radar equation: P_sense * G_tx * G_rx * lambda^2 * sigma_RCS / ((4*pi)^3 * R^4)
+            p_sense_w = (self.tx_w * act_power_mult * user_pow_weights) * (1.0 - comm_frac)
+            rcs_m2 = 10.0
+            radar_gain = (
+                float(self._n_tx)
+                * float(self._n_rx)
+                * (self.lam ** 2)
+                * rcs_m2
+                / (((4.0 * math.pi) ** 3) * np.maximum(self._dists_2d, 1.0) ** 4)
+            )
+            sensing_snr = np.maximum(p_sense_w * radar_gain / total_sense_noise, 1e-9)
             bw = max(self.spec.bandwidth_hz, 1.0)
             b_rms2 = (bw ** 2) / 12.0
             round_trip_factor = 1.0 if "bistatic" in (self.spec.topology_type or "").lower() else 2.0
@@ -636,12 +670,12 @@ class ComposedWirelessEnv:
 
         eff_snr_post = rx_w / np.maximum(self.noise_w + active_ris_noise_w + jam_w, 1e-30)
 
-        # Achievable Rate: Shannon or Polyanskiy FBL dispersion if HRLLC enabled
+        # Achievable Rate: Shannon or Polyanskiy FBL dispersion if HRLLC enabled (strictly <= Shannon)
         shannon_se = np.log2(1.0 + eff_snr_post)
         if "hrllc_fbl_urllc" in self._blocks:
             v_disp = (1.0 - (1.0 + eff_snr_post) ** (-2.0)) * (math.log2(math.e) ** 2)
             n_blk = 200.0
-            se = np.maximum(shannon_se - np.sqrt(np.maximum(v_disp, 0.0) / n_blk) * qfuncinv(1e-5), 0.05)
+            se = np.clip(shannon_se - np.sqrt(np.maximum(v_disp, 0.0) / n_blk) * qfuncinv(1e-5), 0.0, shannon_se)
         else:
             se = shannon_se
 
@@ -713,7 +747,10 @@ class ComposedWirelessEnv:
             num = torch.sum(h_series[1:] * h_series[:-1].conj()).real.item()
             den = math.sqrt(float(torch.sum(h_series[1:].abs().pow(2)).item() * torch.sum(h_series[:-1].abs().pow(2)).item())) + 1e-12
             emp_rho = num / den
-            lag_gap = abs(emp_rho - self.temporal_rho)
+            # Theoretical lag-1 autocorrelation of Rician mix (static specular LoS + AR(1) Clarke NLoS)
+            los_w = float(np.mean(self._k_ratio / (self._k_ratio + 1.0)))
+            theo_rho = los_w + (1.0 - los_w) * self.temporal_rho
+            lag_gap = abs(emp_rho - theo_rho)
         else:
             emp_rho = self.temporal_rho
             lag_gap = 0.0

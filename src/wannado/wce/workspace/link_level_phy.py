@@ -21,16 +21,16 @@ _MOD_BITS: dict[str, int] = {"QPSK": 2, "16QAM": 4, "64QAM": 6}
 
 
 def _gray_pam_levels(bits_per_axis: int) -> tuple[np.ndarray, np.ndarray]:
-    """Generate unit-power Gray-coded 1D PAM amplitude levels and binary bit table."""
+    """Generate Gray-coded 1D PAM amplitude levels and binary bit table (adjacent levels differ by 1 bit)."""
     m_axis = 1 << bits_per_axis
     bit_patterns = np.zeros((m_axis, bits_per_axis), dtype=np.int64)
     levels = np.zeros(m_axis, dtype=np.float64)
     for idx in range(m_axis):
         gray = idx ^ (idx >> 1)
         for b in range(bits_per_axis):
-            bit_patterns[gray, bits_per_axis - 1 - b] = (idx >> b) & 1
-        # Map binary index -> symmetric odd integers -(m-1), ..., +(m-1) with 0 -> +(m-1)
-        levels[gray] = float((m_axis - 1) - 2 * idx)
+            bit_patterns[idx, bits_per_axis - 1 - b] = (gray >> b) & 1
+        # Map Gray-ordered index -> monotonic odd integers +(m-1), +(m-3), ..., -(m-1)
+        levels[idx] = float((m_axis - 1) - 2 * idx)
     return levels, bit_patterns
 
 
@@ -65,22 +65,41 @@ def _build_ldpc_parity_matrix(
     col_weight: int = 3,
     seed: int = 2025,
 ) -> tuple[np.ndarray, np.ndarray, list[np.ndarray], list[np.ndarray]]:
-    """Construct systematic rate-k/(k+m) dual-diagonal staircase LDPC matrix H = [H_u | H_p]."""
+    """Construct girth >= 6 (zero length-4 cycles) systematic dual-diagonal LDPC matrix H = [H_u | H_p]."""
     rng = np.random.default_rng(seed)
-    h_u = np.zeros((m_parity, k_info), dtype=np.int8)
-    for col in range(k_info):
-        # Strided + jittered row selection avoiding length-4 cycles cleanly
-        base_rows = [(col * 7 + step * (m_parity // col_weight) + int(rng.integers(0, 5))) % m_parity for step in range(col_weight)]
-        while len(set(base_rows)) < col_weight:
-            base_rows.append(int(rng.integers(0, m_parity)))
-            base_rows = list(dict.fromkeys(base_rows))[:col_weight]
-        h_u[base_rows[:col_weight], col] = 1
-
     h_p = np.zeros((m_parity, m_parity), dtype=np.int8)
     for r in range(m_parity):
         h_p[r, r] = 1
         if r > 0:
             h_p[r, r - 1] = 1
+
+    # Track all row pairs that already share a column (including adjacent pairs in dual-diagonal H_p)
+    used_pairs: set[tuple[int, int]] = {(r - 1, r) for r in range(1, m_parity)}
+    row_deg = np.sum(h_p, axis=1).astype(np.int64)
+    h_u = np.zeros((m_parity, k_info), dtype=np.int8)
+
+    for col in range(k_info):
+        noise = rng.random(m_parity)
+        order = sorted(range(m_parity), key=lambda r: (int(row_deg[r]), float(noise[r])))
+        chosen: list[int] = []
+        for r in order:
+            if all((min(r, p), max(r, p)) not in used_pairs for p in chosen):
+                chosen.append(r)
+                if len(chosen) == col_weight:
+                    break
+        if len(chosen) < col_weight:
+            # Fallback only for tiny parity dimensions where strict girth-6 is infeasible
+            for r in order:
+                if r not in chosen:
+                    chosen.append(r)
+                    if len(chosen) == col_weight:
+                        break
+        for i in range(len(chosen)):
+            for j in range(i + 1, len(chosen)):
+                a, b = chosen[i], chosen[j]
+                used_pairs.add((a, b) if a < b else (b, a))
+        h_u[chosen, col] = 1
+        row_deg[chosen] += 1
 
     h_full = np.concatenate([h_u, h_p], axis=1)
     check_neighbors = [np.flatnonzero(h_full[r]) for r in range(m_parity)]
@@ -173,6 +192,7 @@ class LinkLevelPHYConfig:
     num_subcarriers: int = 32
     pilot_spacing: int = 4
     num_blocks: int = 48
+    cp_length: int | None = None
     seed: int = 42
     device: str = "auto"
 
@@ -344,17 +364,73 @@ def evaluate_link_level_phy(
     x_syms = sym_table[torch.from_numpy(sym_indices).to(dev)]  # (B, n_re_uses * n_streams)
     x_grid = x_syms.view(b_size, n_re_uses, n_streams)  # (B, U, Ns)
 
+    # Wideband unitary eigenbeamforming precoder when Nt > n_streams so ALL TX antennas contribute array gain
+    # while preserving subcarrier phase continuity for causal pilot interpolation (V^H V = I_{n_streams}).
+    if n_tx > n_streams:
+        h_sc = h_grid.permute(0, 3, 1, 2)  # (B, Nsc, Nr, Nt)
+        gram_wb = torch.mean(torch.matmul(h_sc.conj().transpose(-1, -2), h_sc), dim=1)  # (B, Nt, Nt)
+        _, eigvecs = torch.linalg.eigh(gram_wb.cpu())
+        v_wb = eigvecs[..., -n_streams:].to(device=dev, dtype=torch.complex64)  # (B, Nt, Ns)
+        h_eff_grid = torch.einsum("bnmk,bms->bnsk", h_grid, v_wb)  # (B, Nr, Ns, Nsc)
+    else:
+        h_eff_grid = h_grid[:, :, :n_streams, :]
+
     # Map resource uses sequentially onto data_idx subcarriers
-    sc_assign = torch.as_tensor(data_idx[np.arange(n_re_uses) % len(data_idx)], device=dev, dtype=torch.long)
-    h_data_sub = h_grid[:, :, :n_streams, sc_assign]  # (B, Nr, Ns, U)
+    sc_assign_np = data_idx[np.arange(n_re_uses) % len(data_idx)]
+    sc_assign = torch.as_tensor(sc_assign_np, device=dev, dtype=torch.long)
+    h_data_sub = h_eff_grid[:, :, :, sc_assign]  # (B, Nr, Ns, U)
     h_u = h_data_sub.permute(0, 3, 1, 2)  # (B, U, Nr, Ns)
 
-    # Transmit power normalized per stream so total E[||s||^2] = 1 -> per stream power = 1 / n_streams
+    # Transmit power normalized per stream so total E[||V s||^2] = 1 -> per stream power = 1 / n_streams
     scale_tx = 1.0 / math.sqrt(float(n_streams))
     y_clean = scale_tx * torch.einsum("bunm,bum->bun", h_u, x_grid)  # (B, U, Nr)
 
+    # Optional time-domain OFDM IFFT + Cyclic Prefix + tapped-delay convolution (exposes ISI when max_delay > cp_length)
+    if cfg.cp_length is not None:
+        cp_len = max(0, int(cfg.cp_length))
+        # Derive causal discrete-time channel impulse response from h_eff_grid via IFFT across subcarriers
+        # Shift center-DC frequency grid back to standard [0..Nsc-1] DFT ordering before IFFT
+        h_cir = torch.fft.ifft(torch.fft.ifftshift(h_eff_grid, dim=-1), dim=-1)  # (B, Nr, Ns, Nsc)
+        # Retain causal taps up to Nsc // 2
+        l_taps = min(n_sc, max(1, n_sc // 2))
+        h_taps = h_cir[..., :l_taps]
+        if l_taps > cp_len + 1:
+            # Build OFDM frequency symbols on all Nsc subcarriers (data + random previous symbol for inter-symbol interference)
+            n_ofdm = (n_re_uses + len(data_idx) - 1) // len(data_idx)
+            y_td_chunks: list[torch.Tensor] = []
+            prev_td = torch.zeros((b_size, n_streams, n_sc), dtype=torch.complex64, device=dev)
+            data_t = torch.as_tensor(data_idx, device=dev, dtype=torch.long)
+            for sym_i in range(n_ofdm):
+                s0 = sym_i * len(data_idx)
+                s1 = min(n_re_uses, s0 + len(data_idx))
+                n_here = s1 - s0
+                x_fd = torch.zeros((b_size, n_streams, n_sc), dtype=torch.complex64, device=dev)
+                x_fd[:, :, data_t[:n_here]] = scale_tx * x_grid[:, s0:s1, :].permute(0, 2, 1)
+                x_td = torch.fft.ifft(torch.fft.ifftshift(x_fd, dim=-1), dim=-1)
+                if sym_i == 0:
+                    # Preceding random OFDM symbol creates realistic ISI tail when max tap delay > cp_len
+                    prev_fd = torch.zeros_like(x_fd)
+                    prev_fd[:, :, data_t] = scale_tx * sym_table[
+                        torch.randint(0, len(sym_table), (b_size, n_streams, len(data_idx)), device=dev)
+                    ]
+                    prev_td = torch.fft.ifft(torch.fft.ifftshift(prev_fd, dim=-1), dim=-1)
+                cp_part = x_td[..., n_sc - cp_len :] if cp_len > 0 else x_td[..., :0]
+                tail_len = l_taps - 1
+                prefix_prev = prev_td[..., n_sc - tail_len :] if tail_len > 0 else prev_td[..., :0]
+                tx_stream = torch.cat([prefix_prev, cp_part, x_td], dim=-1)
+                # Linear tapped-delay convolution over valid post-CP window of length n_sc
+                y_td = torch.zeros((b_size, n_rx, n_sc), dtype=torch.complex64, device=dev)
+                start_idx = tail_len + cp_len
+                for tap_l in range(l_taps):
+                    sl = tx_stream[..., start_idx - tap_l : start_idx - tap_l + n_sc]
+                    y_td = y_td + torch.einsum("bnm,bmk->bnk", h_taps[..., tap_l], sl)
+                y_fd = torch.fft.fftshift(torch.fft.fft(y_td, dim=-1), dim=-1)
+                y_td_chunks.append(y_fd[:, :, data_t[:n_here]].permute(0, 2, 1))
+                prev_td = x_td
+            y_clean = torch.cat(y_td_chunks, dim=1)
+
     snr_lin = 10.0 ** (float(cfg.snr_db) / 10.0)
-    # E[|y_clean|^2] per receive antenna is sum_{ns} (1/Ns) * 1.0 = 1.0 -> noise variance per RX = 1 / snr_lin
+    # Unit-power baseline channel reference (per-RX noise variance = 1 / snr_lin so TX array gain boosts SNR physically)
     noise_var_rx = 1.0 / max(snr_lin, 1e-12)
     std_rx = math.sqrt(noise_var_rx / 2.0)
     noise_rx = torch.complex(
@@ -363,13 +439,12 @@ def evaluate_link_level_phy(
     )
     y_rx = y_clean + noise_rx
 
-    # Causal Channel Estimation: Genie vs Comb-Pilot LS vs LMMSE frequency-smoothed
+    # Causal Channel Estimation: Genie vs Comb-Pilot LS vs True Wiener Frequency-Correlation LMMSE
     if cfg.estimator == "genie":
         h_hat = h_u
         csi_nmse_db = -60.0
     else:
-        h_pilots_true = h_grid[:, :, :n_streams, pilot_idx]  # (B, Nr, Ns, Np)
-        # Orthogonal pilot transmission of length n_streams gives variance noise_var_rx / 1.0 per entry (unit pilot boost)
+        h_pilots_true = h_eff_grid[:, :, :, pilot_idx]  # (B, Nr, Ns, Np)
         pilot_noise_var = noise_var_rx
         std_p = math.sqrt(pilot_noise_var / 2.0)
         p_noise = torch.complex(
@@ -377,33 +452,43 @@ def evaluate_link_level_phy(
             torch.randn_like(h_pilots_true.imag) * std_p,
         )
         h_pilots_ls = h_pilots_true + p_noise
-        if cfg.estimator == "lmmse":
-            # Wiener shrinkage factor 1 / (1 + noise_var) + adjacent pilot smoothing
-            shrink = 1.0 / (1.0 + pilot_noise_var)
-            h_pilots_est = shrink * h_pilots_ls
-            if h_pilots_est.shape[-1] >= 3:
-                pad_p = torch.cat([h_pilots_est[..., :1], h_pilots_est, h_pilots_est[..., -1:]], dim=-1)
-                h_pilots_est = 0.2 * pad_p[..., :-2] + 0.6 * pad_p[..., 1:-1] + 0.2 * pad_p[..., 2:]
-        else:
-            h_pilots_est = h_pilots_ls
+        if cfg.estimator == "lmmse" and len(pilot_idx) >= 2:
+            # Causal exponential-PDP Wiener LMMSE frequency interpolation estimated purely from noisy pilots:
+            # R(dk) = p_sig * exp(j * theta_step * dk) / (1 + j * omega_tau * dk)
+            dp = float(pilot_idx[1] - pilot_idx[0])
+            raw_pow = float(torch.mean(h_pilots_ls.abs().pow(2)).item())
+            p_sig = max(raw_pow - pilot_noise_var, 0.05 * max(raw_pow, 1e-6))
+            c1 = torch.mean(h_pilots_ls[..., 1:] * h_pilots_ls[..., :-1].conj())
+            rho_mag = min(max(float(c1.abs().item()) / max(p_sig, 1e-9), 0.05), 0.999)
+            theta_step = float(torch.angle(c1).item()) / max(dp, 1.0)
+            omega_tau = math.sqrt(max(1.0 / (rho_mag * rho_mag) - 1.0, 0.0)) / max(dp, 1.0)
 
-        # Linear interpolation from pilot_idx onto data_idx in numpy/torch
-        xp = torch.as_tensor(pilot_idx, device=dev, dtype=torch.float32)
-        xq = torch.as_tensor(data_idx[np.arange(n_re_uses) % len(data_idx)], device=dev, dtype=torch.float32)
-        h_hat_grid = torch.zeros_like(h_u)
-        if len(xp) == 1:
-            h_hat_grid = h_pilots_est.expand(-1, -1, -1, n_re_uses).permute(0, 3, 1, 2)
+            p_pos = torch.as_tensor(pilot_idx, dtype=torch.float64)
+            d_pos = torch.as_tensor(sc_assign_np, dtype=torch.float64)
+            diff_pp = p_pos.unsqueeze(1) - p_pos.unsqueeze(0)  # (Np, Np)
+            diff_dp = d_pos.unsqueeze(1) - p_pos.unsqueeze(0)  # (U, Np)
+            r_pp = p_sig * torch.exp(1j * theta_step * diff_pp) / (1.0 + 1j * omega_tau * diff_pp)
+            r_dp = p_sig * torch.exp(1j * theta_step * diff_dp) / (1.0 + 1j * omega_tau * diff_dp)
+            eye_p = torch.eye(len(pilot_idx), dtype=torch.complex128)
+            w_lmmse = torch.linalg.solve(r_pp + pilot_noise_var * eye_p, r_dp.conj().transpose(-1, -2)).conj().transpose(-1, -2)
+            h_hat = torch.einsum("uk,brsk->burs", w_lmmse.to(device=dev, dtype=torch.complex64), h_pilots_ls)
         else:
-            idx_hi = torch.searchsorted(xp, xq).clamp(1, len(xp) - 1)
-            idx_lo = idx_hi - 1
-            alpha_f = (
-                ((xq - xp[idx_lo]) / (xp[idx_hi] - xp[idx_lo]).clamp(min=1e-6))
-                .clamp(0.0, 1.0)
-                .view(1, 1, 1, -1)
-            )
-            interp = h_pilots_est[..., idx_lo] * (1.0 - alpha_f) + h_pilots_est[..., idx_hi] * alpha_f
-            h_hat_grid = interp.permute(0, 3, 1, 2)
-        h_hat = h_hat_grid
+            # Linear interpolation from pilot_idx onto data_idx
+            h_pilots_est = (1.0 / (1.0 + pilot_noise_var)) * h_pilots_ls if cfg.estimator == "lmmse" else h_pilots_ls
+            xp = torch.as_tensor(pilot_idx, device=dev, dtype=torch.float32)
+            xq = torch.as_tensor(sc_assign_np, device=dev, dtype=torch.float32)
+            if len(xp) == 1:
+                h_hat = h_pilots_est.expand(-1, -1, -1, n_re_uses).permute(0, 3, 1, 2)
+            else:
+                idx_hi = torch.searchsorted(xp, xq).clamp(1, len(xp) - 1)
+                idx_lo = idx_hi - 1
+                alpha_f = (
+                    ((xq - xp[idx_lo]) / (xp[idx_hi] - xp[idx_lo]).clamp(min=1e-6))
+                    .clamp(0.0, 1.0)
+                    .view(1, 1, 1, -1)
+                )
+                interp = h_pilots_est[..., idx_lo] * (1.0 - alpha_f) + h_pilots_est[..., idx_hi] * alpha_f
+                h_hat = interp.permute(0, 3, 1, 2)
         err_pow = float(torch.mean((h_hat - h_u).abs().pow(2)).item())
         true_pow = max(float(torch.mean(h_u.abs().pow(2)).item()), 1e-12)
         csi_nmse_db = 10.0 * math.log10(max(err_pow / true_pow, 1e-10))

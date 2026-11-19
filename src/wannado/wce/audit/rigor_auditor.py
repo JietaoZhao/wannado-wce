@@ -12,6 +12,7 @@ Automatically catches 7 fatal wireless communication experimental traps:
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -142,31 +143,38 @@ def audit_wce_rigor(
     vals = [float(r.metrics.get(metric_name, 0.0)) for r in seed_results]
     stats = aggregate_seed_stats(vals)
 
-    # Check 1: Channel power normalization drift
+    # Check 1: Channel power normalization drift (NaN-safe across all channel tensor keys)
     pow_ok = True
     for r in seed_results:
         for pk in ("mean_channel_power", "mean_small_scale_power"):
             if pk in r.metrics:
                 p_val = float(r.metrics[pk])
-                if p_val < 0.5 or p_val > 1.5:
+                if not math.isfinite(p_val) or p_val < 0.5 or p_val > 1.5:
                     pow_ok = False
-        for tk in ("h", "h_small"):
+        for tk in ("h", "h_small", "h_freq", "h_near"):
             if tk in r.tensors and isinstance(r.tensors[tk], torch.Tensor):
                 t_pow = float(torch.mean(r.tensors[tk].abs().pow(2)).item())
-                if t_pow < 0.5 or t_pow > 1.5:
+                if not math.isfinite(t_pow) or t_pow < 0.5 or t_pow > 1.5:
                     pow_ok = False
     checks["channel_power_normalization_ok"] = pow_ok
     if not pow_ok:
         red_flags.append("channel_power_normalization_drift")
         recommendations.append("Ensure E[|h|^2]=1.0 per spatial entry (missing 1/sqrt(L) or 1/sqrt(2) inflates SNR artificially).")
 
-    # Check 2: Unit & Noise / Finiteness consistency
+    # Check 2: Unit & Noise / Finiteness consistency (inspect BOTH .real and .imag for complex tensors)
     unit_ok = True
     for r in seed_results:
-        if any(not torch.isfinite(torch.as_tensor(v).real).all().item() for v in r.tensors.values() if isinstance(v, torch.Tensor)):
-            unit_ok = False
-        if "snr_db" in r.metrics and abs(r.metrics["snr_db"]) > 150.0:
-            unit_ok = False
+        for v in r.tensors.values():
+            if isinstance(v, torch.Tensor):
+                if v.is_complex():
+                    if not (torch.isfinite(v.real).all().item() and torch.isfinite(v.imag).all().item()):
+                        unit_ok = False
+                elif not torch.isfinite(v).all().item():
+                    unit_ok = False
+        if "snr_db" in r.metrics:
+            snr_v = float(r.metrics["snr_db"])
+            if not math.isfinite(snr_v) or abs(snr_v) > 150.0:
+                unit_ok = False
         if r.diagnostics.get("unit_mismatch", False):
             unit_ok = False
     checks["snr_and_noise_units_ok"] = unit_ok
@@ -199,13 +207,18 @@ def audit_wce_rigor(
         red_flags.append("doppler_coherence_violation")
         recommendations.append("Ensure time-series slots satisfy Clarke autocorrelation J0(2*pi*f_d*dt) instead of i.i.d. jumps.")
 
-    # Check 5: Passive RIS energy conservation
+    # Check 5: Passive RIS energy conservation (check diagnostics AND any phi* tensors directly)
     ris_ok = True
     for r in seed_results:
         if r.diagnostics.get("is_passive_ris", False):
             max_mod = float(r.diagnostics.get("max_ris_modulus", 1.0))
-            if max_mod > 1.0 + 1e-4:
+            if not math.isfinite(max_mod) or max_mod > 1.0 + 1e-4:
                 ris_ok = False
+            for tname, tval in r.tensors.items():
+                if isinstance(tval, torch.Tensor) and tname.lower().startswith("phi"):
+                    t_mod = float(tval.abs().max().item()) if tval.numel() > 0 else 1.0
+                    if not math.isfinite(t_mod) or t_mod > 1.0 + 1e-4:
+                        ris_ok = False
     checks["passive_ris_energy_conservation_ok"] = ris_ok
     if not ris_ok:
         red_flags.append("passive_ris_energy_conservation_violation")
@@ -257,29 +270,34 @@ def audit_wce_rigor(
     if wce_spec is not None:
         if wce_spec.num_ris_elements < 0 or wce_spec.ris_phase_bits < 0:
             aperture_ok = False
-        if wce_spec.num_tx >= 16 and wce_spec.aperture_m > 0.0:
+        if not math.isfinite(wce_spec.aperture_m) or wce_spec.aperture_m <= 0.0:
+            aperture_ok = False
+        elif wce_spec.num_tx >= 16:
             lam_m = 2.99792458e8 / max(wce_spec.carrier_fc_ghz * 1e9, 1e6)
-            # Even dense 2D sub-arrays have diagonal aperture >= 0.25 * sqrt(Nt) * 0.5 * lam
+            # Even dense 2D sub-arrays have diagonal aperture >= 0.1 * sqrt(Nt) * 0.5 * lam
             min_phys_ap = 0.1 * (wce_spec.num_tx ** 0.5) * 0.5 * lam_m
             if wce_spec.aperture_m < min_phys_ap:
                 aperture_ok = False
     if not aperture_ok:
         red_flags.append("ris_or_aperture_physics_mismatch")
         recommendations.append(
-            "Verify WCESpec num_ris_elements >= 0, ris_phase_bits >= 0, and physical array aperture_m >= D_min(num_tx, fc_ghz)."
+            "Verify WCESpec num_ris_elements >= 0, ris_phase_bits >= 0, and physical array aperture_m > 0 >= D_min(num_tx, fc_ghz)."
         )
     checks["ris_quantization_and_aperture_ok"] = aperture_ok
 
-    # Check 10: Table I provenance integrity (no contradictory duplicates or missing citation keys)
+    # Check 10: Table I provenance integrity (non-empty when WCESpec provided; unique keys & non-empty citations)
     table1_ok = True
-    if wce_spec is not None and wce_spec.parameter_provenance:
-        seen_t1: set[str] = set()
-        for row in wce_spec.parameter_provenance:
-            pkey = str(row.parameter)
-            if pkey in seen_t1 or not str(row.citation_key).strip():
-                table1_ok = False
-                break
-            seen_t1.add(pkey)
+    if wce_spec is not None:
+        if not wce_spec.parameter_provenance:
+            table1_ok = False
+        else:
+            seen_t1: set[str] = set()
+            for row in wce_spec.parameter_provenance:
+                pkey = str(row.parameter)
+                if pkey in seen_t1 or not str(row.citation_key).strip():
+                    table1_ok = False
+                    break
+                seen_t1.add(pkey)
     if not table1_ok:
         red_flags.append("table1_provenance_integrity_violation")
         recommendations.append("Ensure Table I parameter_provenance rows have unique parameter names and non-empty citation keys.")

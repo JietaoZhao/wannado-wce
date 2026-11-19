@@ -101,6 +101,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_jit.add_argument("--write-dir", default=None, dest="write_dir", help="Directory to write verified adapter script.")
     p_jit.add_argument("--scenario", default="asu_campus_3p5", help="DeepMIMO scenario disk check target.")
     p_jit.add_argument("--verify", action="store_true", help="Execute adapter --self-test after writing.")
+    p_jit.add_argument("--require-live", action="store_true", dest="require_live", help="Fail verification unless the real external library is installed and passes live import.")
     p_jit.add_argument("--json", action="store_true", dest="as_json")
 
     p_cite = sub.add_parser("cite", help="Export verbatim verified BibTeX/IEEE/APA citations.")
@@ -131,6 +132,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "verify",
         help="One-command machine gate: Stage 0 spec + Preflight + Rigor 2.0 + Link-Level PHY validation.",
     )
+    p_ver.add_argument("--dir", default=None, dest="lab_dir", help="Path to ./wce_lab directory (auto-resolves wce_spec.json or interface.py).")
     p_ver.add_argument("--spec", default=None, dest="spec_path", help="Path to saved WCESpec (.json/.yaml).")
     p_ver.add_argument("--interface", default=None, dest="interface_path", help="Path to ./wce_lab/interface.py.")
     p_ver.add_argument("--query", default=None, help="Natural-language wireless prompt to compose & verify.")
@@ -318,7 +320,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             bundle = write_jit_adapter_bundle(args.tool_id, dest_dir=target, overwrite=True)
             written_files = {k: str(v) for k, v in bundle.items()}
             if args.verify and "adapter_py" in bundle:
-                verify_res = verify_jit_adapter_file(bundle["adapter_py"])
+                verify_res = verify_jit_adapter_file(bundle["adapter_py"], require_live=args.require_live)
         payload = {"readiness": readiness, "written_files": written_files, "verification": verify_res}
         if args.as_json:
             print(json.dumps(payload, indent=2, ensure_ascii=False))
@@ -373,9 +375,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if all(r.ok for r in reports) else 1
 
     if args.command == "verify":
+        spec_path = args.spec_path
+        interface_path = args.interface_path
+        if args.lab_dir and spec_path is None and interface_path is None:
+            lab_root = Path(args.lab_dir).resolve()
+            if (lab_root / "interface.py").is_file():
+                interface_path = str(lab_root / "interface.py")
+            elif (lab_root / "wce_spec.json").is_file():
+                spec_path = str(lab_root / "wce_spec.json")
+            elif (lab_root / "wce_spec.yaml").is_file():
+                spec_path = str(lab_root / "wce_spec.yaml")
+            else:
+                raise FileNotFoundError(f"No interface.py or wce_spec.json/.yaml found under {lab_root}")
         rep = verify_wce_target(
-            spec_path=args.spec_path,
-            interface_path=args.interface_path,
+            spec_path=spec_path,
+            interface_path=interface_path,
             query=args.query,
             blocks=args.blocks,
             seeds=args.seeds,
