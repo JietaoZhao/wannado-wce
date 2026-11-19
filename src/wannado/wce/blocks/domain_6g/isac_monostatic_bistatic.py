@@ -25,7 +25,6 @@ from wannado.wce.core.units import (
     SPEED_OF_LIGHT_MPS,
     db_to_linear,
     dbm_to_watt,
-    linear_to_db,
     thermal_noise_power_watt,
     wavelength_m,
 )
@@ -102,14 +101,20 @@ def provision_isac_jsac_channel(config: ISACConfig | None = None, **overrides: A
     gr_lin = float(cfg.num_rx_sensing)
     p_sense = tx_w * (1.0 - cfg.comm_power_split)
     rx_echo_w = (p_sense * gt_lin * gr_lin * (lam ** 2) * rcs_m2) / (((4.0 * math.pi) ** 3) * (d_tx_tgt ** 2) * (d_tgt_rx ** 2))
-    sensing_snr_lin = rx_echo_w / max(noise_w, 1e-30)
+    base_sensing_snr_lin = rx_echo_w / max(noise_w, 1e-30)
+
+    # Draw stochastic target RCS fluctuation BEFORE topology-dependent theta_r so
+    # monostatic vs bistatic at identical geometry & seed share identical fading draws.
+    alpha_tgt = complex_normal((cfg.batch_size,), variance=1.0, device=dev)
+    rcs_fluct = alpha_tgt.abs().pow(2).clamp(min=1e-4)
+    sensing_snr_vec = base_sensing_snr_lin * rcs_fluct
 
     # Range CRB: var(tau) >= 1 / (8 * pi^2 * B_rms^2 * SNR_sense), with B_rms^2 = B^2 / 12
     # Monostatic two-way round-trip tau = 2*R/c => sigma_R = (c / 2) * sigma_tau; bistatic uses factor 1.0.
     b_rms2 = (cfg.bandwidth_hz ** 2) / 12.0
     round_trip_factor = 2.0 if cfg.topology == "monostatic" else 1.0
-    range_crb_m = SPEED_OF_LIGHT_MPS / (
-        round_trip_factor * 2.0 * math.sqrt(2.0) * math.pi * math.sqrt(max(b_rms2 * sensing_snr_lin, 1e-12))
+    range_crb_vec = SPEED_OF_LIGHT_MPS / (
+        round_trip_factor * 2.0 * math.sqrt(2.0) * math.pi * torch.sqrt((b_rms2 * sensing_snr_vec).clamp(min=1e-12))
     )
 
     # Target Echo Channel H_target[B, Nr_s, Nt] + Background Clutter Channel H_bg[B, Nr_s, Nt]
@@ -117,7 +122,6 @@ def provision_isac_jsac_channel(config: ISACConfig | None = None, **overrides: A
     theta_r = theta_t if cfg.topology == "monostatic" else (torch.rand(cfg.batch_size, device=dev) - 0.5) * 1.2
     a_tx = ula_farfield_steering(cfg.num_tx, theta_t)
     a_rx = ula_farfield_steering(cfg.num_rx_sensing, theta_r)
-    alpha_tgt = complex_normal((cfg.batch_size,), variance=1.0, device=dev)
     h_target = math.sqrt(cfg.num_tx * cfg.num_rx_sensing) * torch.einsum("b,bn,bm->bnm", alpha_tgt, a_rx, a_tx.conj())
 
     clut_ang_t = (torch.rand((cfg.batch_size, cfg.num_clutter_paths), device=dev) - 0.5) * math.pi
@@ -127,11 +131,12 @@ def provision_isac_jsac_channel(config: ISACConfig | None = None, **overrides: A
     c_g = complex_normal((cfg.batch_size, cfg.num_clutter_paths), variance=1.0 / max(1, cfg.num_clutter_paths), device=dev)
     h_bg = math.sqrt(cfg.num_tx * cfg.num_rx_sensing) * torch.einsum("bl,bln,blm->bnm", c_g, c_rx, c_tx.conj())
 
-    # Communication user channel (1-ant UE)
+    # Communication user channel (1-ant UE, MRT beamformed effective gain ||h_comm||_2^2)
     comm_fspl_lin = (lam / (4.0 * math.pi * cfg.comm_user_distance_m)) ** 2
     h_comm = complex_normal((cfg.batch_size, cfg.num_tx), variance=1.0, device=dev)
-    comm_snr_lin = (tx_w * cfg.comm_power_split * cfg.num_tx * comm_fspl_lin) / max(noise_w, 1e-30)
-    comm_rate_bps_hz = math.log2(1.0 + comm_snr_lin)
+    comm_gain = h_comm.abs().pow(2).sum(dim=-1).clamp(min=1e-6)
+    comm_snr_vec = (tx_w * cfg.comm_power_split * comm_fspl_lin / max(noise_w, 1e-30)) * comm_gain
+    comm_rate_vec = torch.log2(1.0 + comm_snr_vec)
 
     prov = [
         ParamProvenance("topology", cfg.topology, "enum", "Monostatic vs Bistatic sensing geometry", "gpp_tr38901_isac", "Rel-19 ISAC", "3gpp_tr38901_isac_rel19", "Separates background multipath clutter from target echo links."),
@@ -142,12 +147,19 @@ def provision_isac_jsac_channel(config: ISACConfig | None = None, **overrides: A
         seed=cfg.seed,
         elapsed_seconds=time.perf_counter() - t0,
         config=asdict(cfg),
-        tensors={"h_target": h_target.to(torch.complex64), "h_background_clutter": h_bg.to(torch.complex64), "h_comm": h_comm.to(torch.complex64)},
+        tensors={
+            "h_target": h_target.to(torch.complex64),
+            "h_background_clutter": h_bg.to(torch.complex64),
+            "h_comm": h_comm.to(torch.complex64),
+            "snr_db": (10.0 * torch.log10(comm_snr_vec.clamp(min=1e-12))).to(torch.float32),
+            "range_crb_m": range_crb_vec.to(torch.float32),
+        },
         metrics={
-            "sensing_snr_db": float(linear_to_db(sensing_snr_lin)),
-            "range_rmse_crb_m": float(range_crb_m),
-            "comm_snr_db": float(linear_to_db(comm_snr_lin)),
-            "comm_spectral_efficiency_bps_hz": float(comm_rate_bps_hz),
+            "sensing_snr_db": float(10.0 * torch.log10(torch.mean(sensing_snr_vec).clamp(min=1e-12)).item()),
+            "range_rmse_crb_m": float(torch.median(range_crb_vec).item()),
+            "comm_snr_db": float(10.0 * torch.log10(torch.mean(comm_snr_vec).clamp(min=1e-12)).item()),
+            "comm_spectral_efficiency_bps_hz": float(torch.mean(comm_rate_vec).item()),
+            "mean_channel_power": float(torch.mean(h_comm.abs().pow(2)).item()),
             "two_way_delay_us": float(((d_tx_tgt + d_tgt_rx) / SPEED_OF_LIGHT_MPS) * 1e6),
             "target_doppler_hz": float(((2.0 if cfg.topology == "monostatic" else 1.5) * cfg.target_speed_mps * fc_hz) / SPEED_OF_LIGHT_MPS),
         },

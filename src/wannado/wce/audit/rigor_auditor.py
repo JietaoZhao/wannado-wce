@@ -227,7 +227,7 @@ def audit_wce_rigor(
         red_flags.append("farfield_assumption_in_nearfield_regime")
         recommendations.append("Distance < Rayleigh distance Z_R=2D^2/lambda; switch to spherical steering (`nearfield_xlmimo_thz`).")
 
-    # Check 7: Multi-seed count & classical baseline inclusion
+    # Check 7: Multi-seed count, stochastic variance, & classical baseline inclusion
     seeds_ok = len(seed_results) >= min_seeds and has_classic_baseline
     checks["multi_seed_and_baseline_ok"] = seeds_ok
     if len(seed_results) < min_seeds:
@@ -236,6 +236,54 @@ def audit_wce_rigor(
     if not has_classic_baseline:
         red_flags.append("missing_classic_baseline_reference")
         recommendations.append("Always benchmark against at least one classic analytical baseline (AWGN / WMMSE / PF / LS-LMMSE).")
+
+    analytic_whitelist = {"shannon_capacity_mbps", "fbl_achievable_rate_bps_hz", "los_power_fraction"}
+    is_analytic = (
+        metric_name in analytic_whitelist
+        or any(r.diagnostics.get("is_deterministic_analytic", False) for r in seed_results)
+    )
+    stochastic_ok = True
+    if len(seed_results) >= 2 and not is_analytic and stats.get("std", 0.0) <= 1e-12:
+        stochastic_ok = False
+        red_flags.append("zero_variance_deterministic_metric")
+        recommendations.append(
+            f"Primary metric '{metric_name}' had zero cross-seed std across {len(seed_results)} seeds; "
+            "wire stochastic channel realizations into the metric instead of closed-form mean proxies."
+        )
+    checks["multi_seed_stochastic_variance_ok"] = stochastic_ok
+
+    # Check 9: RIS phase quantization / physical array aperture self-consistency
+    aperture_ok = True
+    if wce_spec is not None:
+        if wce_spec.num_ris_elements < 0 or wce_spec.ris_phase_bits < 0:
+            aperture_ok = False
+        if wce_spec.num_tx >= 16 and wce_spec.aperture_m > 0.0:
+            lam_m = 2.99792458e8 / max(wce_spec.carrier_fc_ghz * 1e9, 1e6)
+            # Even dense 2D sub-arrays have diagonal aperture >= 0.25 * sqrt(Nt) * 0.5 * lam
+            min_phys_ap = 0.1 * (wce_spec.num_tx ** 0.5) * 0.5 * lam_m
+            if wce_spec.aperture_m < min_phys_ap:
+                aperture_ok = False
+    if not aperture_ok:
+        red_flags.append("ris_or_aperture_physics_mismatch")
+        recommendations.append(
+            "Verify WCESpec num_ris_elements >= 0, ris_phase_bits >= 0, and physical array aperture_m >= D_min(num_tx, fc_ghz)."
+        )
+    checks["ris_quantization_and_aperture_ok"] = aperture_ok
+
+    # Check 10: Table I provenance integrity (no contradictory duplicates or missing citation keys)
+    table1_ok = True
+    if wce_spec is not None and wce_spec.parameter_provenance:
+        seen_t1: set[str] = set()
+        for row in wce_spec.parameter_provenance:
+            pkey = str(row.parameter)
+            if pkey in seen_t1 or not str(row.citation_key).strip():
+                table1_ok = False
+                break
+            seen_t1.add(pkey)
+    if not table1_ok:
+        red_flags.append("table1_provenance_integrity_violation")
+        recommendations.append("Ensure Table I parameter_provenance rows have unique parameter names and non-empty citation keys.")
+    checks["table1_provenance_integrity_ok"] = table1_ok
 
     return RigorAuditReport(
         passed=len(red_flags) == 0,

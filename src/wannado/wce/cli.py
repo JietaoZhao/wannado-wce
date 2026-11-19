@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from wannado.wce.agent_kit import install_agent_kit
-from wannado.wce.audit import preflight_wce
+from wannado.wce.audit import preflight_wce, verify_wce_target
 from wannado.wce.catalog.build_catalog import build_registry_json, query_catalog
 from wannado.wce.copilot import (
     build_arsenal_showcase,
@@ -126,6 +126,21 @@ def _build_parser() -> argparse.ArgumentParser:
     p_pf.add_argument("--block", default=None, help="Block ID to preflight directly.")
     p_pf.add_argument("--interface", default="./wce_lab/interface.py", dest="interface_path")
     p_pf.add_argument("--json", action="store_true", dest="as_json")
+
+    p_ver = sub.add_parser(
+        "verify",
+        help="One-command machine gate: Stage 0 spec + Preflight + Rigor 2.0 + Link-Level PHY validation.",
+    )
+    p_ver.add_argument("--spec", default=None, dest="spec_path", help="Path to saved WCESpec (.json/.yaml).")
+    p_ver.add_argument("--interface", default=None, dest="interface_path", help="Path to ./wce_lab/interface.py.")
+    p_ver.add_argument("--query", default=None, help="Natural-language wireless prompt to compose & verify.")
+    p_ver.add_argument("--blocks", nargs="*", default=None, help="Direct wireless block IDs to verify.")
+    p_ver.add_argument("--seeds", nargs="+", type=int, default=[0, 1, 2], help="Seeds for multi-seed rigor verification.")
+    p_ver.add_argument("--min-seeds", type=int, default=3, dest="min_seeds", help="Minimum seeds required by Stage 3 Rigor Auditor.")
+    p_ver.add_argument("--phy-snr-db", type=float, default=12.0, help="SNR (dB) for Link-Level OFDM-MIMO PHY smoke check.")
+    p_ver.add_argument("--no-phy-check", action="store_true", help="Skip Link-Level OFDM-MIMO PHY smoke test.")
+    p_ver.add_argument("--strict-warnings", action="store_true", help="Fail gate on any Stage 0/1 advisory warning.")
+    p_ver.add_argument("--json", action="store_true", dest="as_json")
 
     p_init = sub.add_parser("init-agent", help="Install universal AGENTS.md / Agent Skills rules + IDE adapters.")
     p_init.add_argument("--dir", default=".", dest="project_dir")
@@ -356,6 +371,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             for r in reports:
                 print(r.format_report())
         return 0 if all(r.ok for r in reports) else 1
+
+    if args.command == "verify":
+        rep = verify_wce_target(
+            spec_path=args.spec_path,
+            interface_path=args.interface_path,
+            query=args.query,
+            blocks=args.blocks,
+            seeds=args.seeds,
+            min_seeds=args.min_seeds,
+            with_phy_check=not args.no_phy_check,
+            phy_snr_db=args.phy_snr_db,
+            strict_warnings=args.strict_warnings,
+        )
+        print(json.dumps(rep.to_dict(), indent=2, ensure_ascii=False) if args.as_json else rep.format_report())
+        return rep.exit_code
 
     if args.command == "init-agent":
         written = install_agent_kit(project_dir=args.project_dir, ide=args.ide)

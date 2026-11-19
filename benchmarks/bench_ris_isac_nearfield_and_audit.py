@@ -8,9 +8,8 @@ from pathlib import Path
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("MPLBACKEND", "Agg")
 
-import matplotlib
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from wannado.wce.blocks.arrays_and_ris import (

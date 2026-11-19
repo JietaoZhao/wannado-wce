@@ -81,19 +81,27 @@ def provision_ambient_iot_backscatter(config: AmbientIoTConfig | None = None, **
     rng = set_global_seed(cfg.seed)
 
     lam = wavelength_m(cfg.fc_ghz * 1e9)
-    max_d = cfg.direct_distance_m if cfg.topology == "topology_1" else cfg.helper_distance_m
-    dists = rng.uniform(2.0, max(3.0, max_d), size=cfg.num_devices)
-    fading_pow = rng.exponential(scale=1.0, size=cfg.num_devices)
+    if cfg.topology == "topology_1":
+        # Direct BS <-> Tag: forward energizing and backscatter links share BS-Tag distance
+        dists_fwd = rng.uniform(2.0, max(3.0, cfg.direct_distance_m), size=cfg.num_devices)
+        dists_rev = dists_fwd
+    else:
+        # Topology 2: Intermediate helper UE energizes nearby tag (short hop), tag backscatters to reader/BS
+        dists_fwd = rng.uniform(1.5, max(2.5, cfg.helper_distance_m), size=cfg.num_devices)
+        dists_rev = rng.uniform(5.0, max(10.0, cfg.direct_distance_m), size=cfg.num_devices)
+    fading_fwd = rng.exponential(scale=1.0, size=cfg.num_devices)
+    fading_rev = rng.exponential(scale=1.0, size=cfg.num_devices)
 
-    # Forward energizing link + backscatter modulation loss -> two-way return SNR
-    path_gain_fwd = ((lam / (4.0 * math.pi * dists)) ** 2) * fading_pow
+    # Separate asymmetric forward energizing link & reverse backscatter return link
+    path_gain_fwd = ((lam / (4.0 * math.pi * dists_fwd)) ** 2) * fading_fwd
+    path_gain_rev = ((lam / (4.0 * math.pi * dists_rev)) ** 2) * fading_rev
     tx_w = dbm_to_watt(cfg.carrier_tx_power_dbm)
     harvested_w = tx_w * path_gain_fwd * 0.5  # 50% RF-DC / impedance duty split
     harvested_dbm = np.array([watt_to_dbm(w) for w in harvested_w])
     active_mask = harvested_dbm >= cfg.tag_sensitivity_dbm
 
     bs_loss_lin = float(db_to_linear(-cfg.backscatter_loss_db))
-    rx_reader_w = tx_w * (path_gain_fwd ** 2) * bs_loss_lin
+    rx_reader_w = tx_w * path_gain_fwd * path_gain_rev * bs_loss_lin
     noise_w = thermal_noise_power_watt(cfg.bandwidth_hz, noise_figure_db=cfg.noise_figure_db)
     reader_snr_db = linear_to_db(rx_reader_w / max(noise_w, 1e-30))
 

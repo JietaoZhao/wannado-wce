@@ -29,7 +29,7 @@ jobs:
 
       - name: Lint with ruff
         if: matrix.python-version == '3.12'
-        run: ruff check src tests
+        run: ruff check src tests benchmarks
 
       - name: Type-check with mypy
         if: matrix.python-version == '3.12'

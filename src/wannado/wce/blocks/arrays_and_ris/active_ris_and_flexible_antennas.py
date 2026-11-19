@@ -24,7 +24,7 @@ from scipy import special
 
 from wannado.wce.core.provenance import MECHANISM_PROVENANCE
 from wannado.wce.core.types import ParamProvenance, ProvisionResult, WCEMeta
-from wannado.wce.core.units import db_to_linear, wavelength_m
+from wannado.wce.core.units import db_to_linear, dbm_to_watt, thermal_noise_power_watt, wavelength_m
 from wannado.wce.core.utils import complex_normal, resolve_device, set_global_seed
 
 META = WCEMeta(
@@ -62,7 +62,13 @@ class ActiveRISFlexibleConfig:
     # Active RIS knobs
     num_ris_elements: int = 32
     active_amp_gain_db: float = 10.0
+    active_power_budget_w: float = 0.05
     ris_thermal_noise_ratio: float = 1.0
+    d_bs_ris_m: float = 25.0
+    d_ris_ue_m: float = 35.0
+    tx_power_dbm: float = 33.0
+    bandwidth_hz: float = 20e6
+    noise_figure_db: float = 7.0
     # Fluid Antenna (FAS) knobs
     fas_num_ports: int = 16
     fas_aperture_wavelengths: float = 1.0
@@ -84,33 +90,43 @@ def provision_active_ris_flexible(config: ActiveRISFlexibleConfig | None = None,
     dev = resolve_device(cfg.device)
 
     if cfg.architecture == "active_ris":
-        # Zhang et al. (IEEE TCOM 2023) double-fading two-hop SNR balance:
-        # Both signal & passive link undergo hop1 * hop2 attenuation, whereas Active RIS dynamic thermal noise
-        # only traverses hop2 -> overcome double-fading loss (beta_1 * beta_2) until amplified noise dominates.
-        amp_lin = math.sqrt(float(db_to_linear(cfg.active_amp_gain_db)))
-        hop1_snr_unit = 10.0  # +10 dB BS-to-RIS incident power per element over thermal floor
-        hop2_loss = 1e-3      # -30 dB RIS-to-UE second-hop pathloss scale
+        # Zhang et al. (IEEE TCOM 2023) double-fading two-hop SNR balance with physical distance/fc scaling:
+        # Derive hop-1 and hop-2 large-scale gains physically from fc_ghz, d_bs_ris_m, d_ris_ue_m,
+        # and cap reflection amplification to respect Active RIS DC/RF power budget active_power_budget_w.
+        lam = wavelength_m(cfg.fc_ghz * 1e9)
+        tx_w = dbm_to_watt(cfg.tx_power_dbm)
+        noise_w = thermal_noise_power_watt(cfg.bandwidth_hz, noise_figure_db=cfg.noise_figure_db)
+        bs_gain_lin = 31.62  # +15 dBi BS directional panel gain
+        ue_gain_lin = 3.98   # +6 dBi UE subarray gain
+        beta_1 = ((lam / (4.0 * math.pi * max(cfg.d_bs_ris_m, 1.0))) ** 2) * bs_gain_lin
+        beta_2 = ((lam / (4.0 * math.pi * max(cfg.d_ris_ue_m, 1.0))) ** 2) * ue_gain_lin
         g_in = complex_normal((cfg.batch_size, cfg.num_ris_elements), device=dev)
         h_out = complex_normal((cfg.batch_size, cfg.num_ris_elements), device=dev)
         theta = -torch.angle(g_in * h_out)
-        phi_active = amp_lin * torch.complex(torch.cos(theta), torch.sin(theta))
-        cascade_vec = torch.sum(h_out * torch.complex(torch.cos(theta), torch.sin(theta)) * g_in, dim=-1)
-        sig_active = amp_lin * math.sqrt(hop1_snr_unit * hop2_loss) * cascade_vec
-        sig_passive = math.sqrt(hop1_snr_unit * hop2_loss) * cascade_vec
-        # Dynamic noise amplified by Active RIS traverses only hop2 (factor sqrt(hop2_loss))
-        n_v = complex_normal((cfg.batch_size, cfg.num_ris_elements), variance=cfg.ris_thermal_noise_ratio, device=dev)
-        noise_dyn = math.sqrt(hop2_loss) * torch.sum(h_out * phi_active * n_v, dim=-1)
-        snr_active = sig_active.abs().pow(2) / (1.0 + noise_dyn.abs().pow(2))
-        snr_passive = sig_passive.abs().pow(2)
+        inc_power = torch.sum(tx_w * beta_1 * g_in.abs().pow(2), dim=-1, keepdim=True) + cfg.num_ris_elements * noise_w * cfg.ris_thermal_noise_ratio
+        max_amp = torch.sqrt((cfg.active_power_budget_w / inc_power.clamp(min=1e-18)).clamp(min=1.0))
+        req_amp = math.sqrt(float(db_to_linear(cfg.active_amp_gain_db)))
+        amp_eff = torch.minimum(torch.full_like(max_amp, req_amp), max_amp)
+        phi_unit = torch.complex(torch.cos(theta), torch.sin(theta))
+        phi_active = amp_eff * phi_unit
+        cascade_passive = torch.sqrt(torch.tensor(tx_w * beta_1 * beta_2, device=dev)) * torch.sum(h_out * phi_unit * g_in, dim=-1)
+        cascade_active = torch.sqrt(torch.tensor(tx_w * beta_1 * beta_2, device=dev)) * torch.sum(h_out * phi_active * g_in, dim=-1)
+        # Dynamic noise amplified by Active RIS traverses hop2 (factor sqrt(beta_2))
+        n_v = complex_normal((cfg.batch_size, cfg.num_ris_elements), variance=noise_w * cfg.ris_thermal_noise_ratio, device=dev)
+        noise_dyn = math.sqrt(beta_2) * torch.sum(h_out * phi_active * n_v, dim=-1)
+        snr_active = cascade_active.abs().pow(2) / (noise_w + noise_dyn.abs().pow(2))
+        snr_passive = cascade_passive.abs().pow(2) / noise_w
+        mean_amp = float(torch.mean(amp_eff).item())
         metrics = {
             "active_ris_effective_snr": float(torch.mean(snr_active).item()),
             "passive_ris_equivalent_snr": float(torch.mean(snr_passive).item()),
-            "dynamic_noise_power_ratio": float(torch.mean(noise_dyn.abs().pow(2)).item()),
+            "dynamic_noise_power_ratio": float(torch.mean(noise_dyn.abs().pow(2)).item() / max(noise_w, 1e-30)),
             "active_gain_over_passive": float((torch.mean(snr_active) / torch.mean(snr_passive).clamp(min=1e-12)).item()),
+            "effective_amp_modulus": mean_amp,
         }
-        tensors = {"h_eff": sig_active, "dynamic_noise": noise_dyn, "phi_active": phi_active}
-        diag = {"device": str(dev), "is_passive_ris": False, "max_ris_modulus": amp_lin}
-        prov = [ParamProvenance("active_amp_gain_db", cfg.active_amp_gain_db, "dB", "Active RIS element reflection amplitude gain", "active_ris_noise", "IEEE TCOM 2023", "zhang2023active", "Includes hop-2 amplified dynamic thermal noise sqrt(beta_2)*G*Phi*n_v.")]
+        tensors = {"h_eff": (cascade_active / math.sqrt(max(tx_w, 1e-18))).to(torch.complex64), "dynamic_noise": noise_dyn, "phi_active": phi_active}
+        diag = {"device": str(dev), "is_passive_ris": False, "max_ris_modulus": float(torch.max(amp_eff).item())}
+        prov = [ParamProvenance("active_amp_gain_db", cfg.active_amp_gain_db, "dB", "Active RIS element reflection amplitude gain", "active_ris_noise", "IEEE TCOM 2023", "zhang2023active", "Physical hop-1/hop-2 attenuation + P_A saturation & hop-2 dynamic thermal noise.")]
 
     elif cfg.architecture == "fas":
         # Jakes spatial correlation across K tightly spaced fluid ports over W*lambda (Wong et al., 2021)

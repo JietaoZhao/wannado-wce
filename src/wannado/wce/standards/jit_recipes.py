@@ -251,15 +251,21 @@ def build_channel_module(cir_a: Any, *, snr_db: float = 15.0) -> ChannelModuleAd
     return ChannelModuleAdapter(lambda b: h_flat[:b], snr_db=snr_db, add_noise=True)
 
 
-def run_self_test() -> dict[str, Any]:
-    """Verify Sionna tensor axis conversion, pathgain stripping, autograd, and Stage 3 Rigor Audit."""
-    # Check live Sionna availability cleanly; synthesize exact 7D Sionna CIR shape for contract verification
+def run_self_test(*, require_live: bool = False) -> dict[str, Any]:
+    """Verify Sionna tensor axis conversion, live import probe when installed, autograd, and Stage 3 Rigor Audit."""
     sionna_loaded = False
+    live_probe_passed: bool | None = None
+    live_detail = "not_installed"
     try:
         import sionna  # noqa: F401
         sionna_loaded = True
+        live_detail = f"sionna=={{getattr(sionna, '__version__', 'installed')}}"
+        live_probe_passed = True
     except ImportError:
         pass
+    except Exception as exc:  # noqa: BLE001
+        live_probe_passed = False
+        live_detail = f"live_import_error:{{exc}}"
 
     rng = np.random.default_rng(42)
     # Canonical Sionna 7D shape: (B=8, rx=1, rx_ant=2, tx=1, tx_ant=8, paths=6, time=4) with realistic -90 dB pathloss
@@ -267,29 +273,56 @@ def run_self_test() -> dict[str, Any]:
     adapted = convert_sionna_cir(raw_cir, snr_db=15.0)
     verdict = adapted["verification"]
 
-    # Confirm Stage 3 Rigor Auditor passes on adapted result across 3 virtual slices
-    h_small = adapted["h_small"]
-    res = ProvisionResult(
-        block_id="sionna_rt_adapter",
-        seed=0,
-        elapsed_seconds=0.01,
-        config={{"source": "sionna_rt", "sionna_installed": sionna_loaded}},
-        tensors={{"h_small": h_small}},
-        metrics={{"mean_channel_power": verdict["mean_channel_power"], "snr_db": 15.0}},
-        diagnostics={{"normalized_channel_power": verdict["mean_channel_power"]}},
-        parameter_provenance=[ParamProvenance("sionna_cir_layout", "7D->4D", "tensor", "Sionna CIR normalization", "itur_m2160", "Ray Tracing Bridge", "itur_m2160_2023", "Separates 10^-9 ray pathgain from unit fading.")],
-    )
-    rigor = audit_wce_rigor([res, res, res], has_classic_baseline=True, min_seeds=3)
-    return {{"tool_id": "{recipe.tool_id}", "live_library_installed": sionna_loaded, "verification": verdict, "rigor_passed": rigor.passed, "red_flags": rigor.red_flags}}
+    # Confirm Stage 3 Rigor Auditor passes across 3 distinct stochastic draws from adapted tensor contract
+    runs = []
+    for seed_idx in (0, 1, 2):
+        r_gen = np.random.default_rng(100 + seed_idx)
+        cir_s = (r_gen.normal(size=(8, 1, 2, 1, 8, 6, 4)) + 1j * r_gen.normal(size=(8, 1, 2, 1, 8, 6, 4))) * 3e-5
+        ad_s = convert_sionna_cir(cir_s, snr_db=15.0)
+        h_s = ad_s["h_small"]
+        v_s = ad_s["verification"]
+        runs.append(
+            ProvisionResult(
+                block_id="sionna_rt_adapter",
+                seed=seed_idx,
+                elapsed_seconds=0.01,
+                config={{"source": "sionna_rt", "sionna_installed": sionna_loaded}},
+                tensors={{"h_small": h_s}},
+                metrics={{
+                    "mean_spectral_efficiency_bps_hz": float(
+                        np.mean(np.log2(1.0 + (10.0 ** 1.5) * np.abs(h_s.numpy()) ** 2))
+                    ),
+                    "mean_channel_power": v_s["mean_channel_power"],
+                    "snr_db": 15.0,
+                }},
+                diagnostics={{"normalized_channel_power": v_s["mean_channel_power"], "contract_smoke_only": not sionna_loaded}},
+                parameter_provenance=[ParamProvenance("sionna_cir_layout", "7D->4D", "tensor", "Sionna CIR normalization", "itur_m2160", "Ray Tracing Bridge", "itur_m2160_2023", "Separates 10^-9 ray pathgain from unit fading.")],
+            )
+        )
+    rigor = audit_wce_rigor(runs, has_classic_baseline=True, min_seeds=3)
+    mode = "live_runtime_probe" if sionna_loaded else "synthetic_contract_smoke"
+    ok = bool(verdict["ok"] and rigor.passed and (not require_live or (sionna_loaded and live_probe_passed)))
+    return {{
+        "tool_id": "{recipe.tool_id}",
+        "verification_mode": mode,
+        "live_library_installed": sionna_loaded,
+        "live_probe_passed": live_probe_passed,
+        "live_detail": live_detail,
+        "verification": verdict,
+        "rigor_passed": rigor.passed,
+        "red_flags": rigor.red_flags,
+        "ok": ok,
+    }}
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--require-live", action="store_true")
     args = parser.parse_args()
-    out = run_self_test()
+    out = run_self_test(require_live=args.require_live)
     print(json.dumps(out, indent=2))
-    if not (out["verification"]["ok"] and out["rigor_passed"]):
+    if not out["ok"]:
         raise SystemExit(1)
 '''
 
@@ -327,41 +360,77 @@ def convert_deepmimo_dataset(
     return {{"h_small": h_small, "large_scale_gain": path_gain, "verification": report}}
 
 
-def run_self_test(scenario: str = "asu_campus_3p5") -> dict[str, Any]:
+def run_self_test(scenario: str = "asu_campus_3p5", *, require_live: bool = False) -> dict[str, Any]:
     readiness = check_tool_platform_readiness("deepmimo", deepmimo_scenario=scenario)
     dm_loaded = False
+    live_probe_passed: bool | None = None
+    live_detail = "not_installed"
     try:
         import deepmimo  # noqa: F401
         dm_loaded = True
+        live_detail = f"deepmimo=={{getattr(deepmimo, '__version__', 'installed')}}"
+        live_probe_passed = True
     except ImportError:
         pass
+    except Exception as exc:  # noqa: BLE001
+        live_probe_passed = False
+        live_detail = f"live_import_error:{{exc}}"
 
     rng = np.random.default_rng(7)
     raw_dm = (rng.normal(size=(16, 2, 16, 32)) + 1j * rng.normal(size=(16, 2, 16, 32))) * 1e-4
     adapted = convert_deepmimo_dataset(raw_dm)
     verdict = adapted["verification"]
 
-    res = ProvisionResult(
-        block_id="deepmimo_adapter",
-        seed=0,
-        elapsed_seconds=0.01,
-        config={{"scenario": scenario, "deepmimo_installed": dm_loaded}},
-        tensors={{"h_small": adapted["h_small"]}},
-        metrics={{"mean_channel_power": verdict["mean_channel_power"], "snr_db": 15.0}},
-        parameter_provenance=[ParamProvenance("deepmimo_scenario", scenario, "dataset", "Site-specific MIMO ray tracing", "gpp_tr38901", "Ray Tracing", "3gpp_tr38901", "Strips deterministic InSite pathloss before MIMO CSI normalization.")],
-    )
-    rigor = audit_wce_rigor([res, res, res], has_classic_baseline=True, min_seeds=3)
-    return {{"tool_id": "deepmimo", "live_library_installed": dm_loaded, "readiness": readiness, "verification": verdict, "rigor_passed": rigor.passed}}
+    runs = []
+    for seed_idx in (0, 1, 2):
+        r_gen = np.random.default_rng(200 + seed_idx)
+        dm_s = (r_gen.normal(size=(16, 2, 16, 32)) + 1j * r_gen.normal(size=(16, 2, 16, 32))) * 1e-4
+        ad_s = convert_deepmimo_dataset(dm_s)
+        h_s = ad_s["h_small"]
+        v_s = ad_s["verification"]
+        runs.append(
+            ProvisionResult(
+                block_id="deepmimo_adapter",
+                seed=seed_idx,
+                elapsed_seconds=0.01,
+                config={{"scenario": scenario, "deepmimo_installed": dm_loaded}},
+                tensors={{"h_small": h_s}},
+                metrics={{
+                    "mean_spectral_efficiency_bps_hz": float(
+                        np.mean(np.log2(1.0 + (10.0 ** 1.5) * np.abs(h_s.numpy()) ** 2))
+                    ),
+                    "mean_channel_power": v_s["mean_channel_power"],
+                    "snr_db": 15.0,
+                }},
+                diagnostics={{"normalized_channel_power": v_s["mean_channel_power"], "contract_smoke_only": not dm_loaded}},
+                parameter_provenance=[ParamProvenance("deepmimo_scenario", scenario, "dataset", "Site-specific MIMO ray tracing", "gpp_tr38901", "Ray Tracing", "3gpp_tr38901", "Strips deterministic InSite pathloss before MIMO CSI normalization.")],
+            )
+        )
+    rigor = audit_wce_rigor(runs, has_classic_baseline=True, min_seeds=3)
+    mode = "live_runtime_probe" if dm_loaded else "synthetic_contract_smoke"
+    ok = bool(verdict["ok"] and rigor.passed and (not require_live or (dm_loaded and live_probe_passed)))
+    return {{
+        "tool_id": "deepmimo",
+        "verification_mode": mode,
+        "live_library_installed": dm_loaded,
+        "live_probe_passed": live_probe_passed,
+        "live_detail": live_detail,
+        "readiness": readiness,
+        "verification": verdict,
+        "rigor_passed": rigor.passed,
+        "ok": ok,
+    }}
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--require-live", action="store_true")
     parser.add_argument("--scenario", default="asu_campus_3p5")
     args = parser.parse_args()
-    out = run_self_test(scenario=args.scenario)
+    out = run_self_test(scenario=args.scenario, require_live=args.require_live)
     print(json.dumps(out, indent=2))
-    if not (out["verification"]["ok"] and out["rigor_passed"]):
+    if not out["ok"]:
         raise SystemExit(1)
 '''
 
@@ -422,16 +491,21 @@ def build_ns3_gym_bridge(*, obs_dim: int = 8, action_dim: int = 4, port: int = 5
     return WirelessGymEnvAdapter(obs_dim=obs_dim, action_dim=action_dim, discrete_actions=True, reset_fn=_reset, step_fn=_step, max_steps=50)
 
 
-def run_self_test() -> dict[str, Any]:
+def run_self_test(*, require_live: bool = False) -> dict[str, Any]:
     readiness = check_tool_platform_readiness("ns3_5glena_ns3gym")
     env = build_ns3_gym_bridge()
     obs, info = env.reset(seed=0)
     obs2, rew, term, trunc, step_info = env.step(0)
-    ok = obs.shape == (8,) and obs2.shape == (8,) and np.isfinite(obs2).all() and np.isfinite(rew)
+    live_ns3 = bool(step_info.get("live_ns3", False))
+    contract_ok = bool(obs.shape == (8,) and obs2.shape == (8,) and np.isfinite(obs2).all() and np.isfinite(rew))
+    ok = contract_ok and (not require_live or live_ns3)
     return {{
         "tool_id": "ns3_5glena_ns3gym",
+        "verification_mode": "live_runtime_probe" if live_ns3 else "synthetic_contract_smoke",
+        "live_library_installed": live_ns3,
+        "live_probe_passed": live_ns3 if live_ns3 else None,
         "readiness": readiness,
-        "ok": bool(ok),
+        "ok": ok,
         "obs_shape": list(obs.shape),
         "sample_reward": float(rew),
         "info": step_info,
@@ -441,8 +515,9 @@ def run_self_test() -> dict[str, Any]:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--require-live", action="store_true")
     args = parser.parse_args()
-    out = run_self_test()
+    out = run_self_test(require_live=args.require_live)
     print(json.dumps(out, indent=2))
     if not out["ok"]:
         raise SystemExit(1)
@@ -480,21 +555,32 @@ def adapt_array(raw_arr: Any, *, complex_pair_last_dim: bool = False) -> dict[st
     return {{"h_small": h_small, "large_scale_gain": large_gain, "verification": verdict}}
 
 
-def run_self_test() -> dict[str, Any]:
+def run_self_test(*, require_live: bool = False) -> dict[str, Any]:
     readiness = check_tool_platform_readiness("{recipe.tool_id}")
+    live_loaded = bool(readiness.get("installed", False))
     rng = np.random.default_rng(11)
     synth = (rng.normal(size=(8, 2, 4)) + 1j * rng.normal(size=(8, 2, 4))) * 0.05
     adapted = adapt_array(synth)
-    return {{"tool_id": "{recipe.tool_id}", "readiness": readiness, "verification": adapted["verification"]}}
+    ok = bool(adapted["verification"]["ok"] and (not require_live or live_loaded))
+    return {{
+        "tool_id": "{recipe.tool_id}",
+        "verification_mode": "live_runtime_probe" if live_loaded else "synthetic_contract_smoke",
+        "live_library_installed": live_loaded,
+        "live_probe_passed": True if live_loaded else None,
+        "readiness": readiness,
+        "verification": adapted["verification"],
+        "ok": ok,
+    }}
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--require-live", action="store_true")
     args = parser.parse_args()
-    out = run_self_test()
+    out = run_self_test(require_live=args.require_live)
     print(json.dumps(out, indent=2))
-    if not out["verification"]["ok"]:
+    if not out["ok"]:
         raise SystemExit(1)
 '''
 
@@ -543,26 +629,39 @@ def write_jit_adapter_bundle(
     return written
 
 
-def verify_jit_adapter_file(adapter_path: str | Path) -> dict[str, Any]:
+def verify_jit_adapter_file(
+    adapter_path: str | Path,
+    *,
+    require_live: bool = False,
+) -> dict[str, Any]:
     """Execute `--self-test` on a generated JIT adapter script and return its JSON verification report."""
     p = Path(adapter_path).resolve()
+    cmd = [sys.executable, str(p), "--self-test"]
+    if require_live:
+        cmd.append("--require-live")
     proc = subprocess.run(
-        [sys.executable, str(p), "--self-test"],
+        cmd,
         capture_output=True,
         text=True,
         check=False,
     )
-    if proc.returncode != 0:
-        return {"ok": False, "returncode": proc.returncode, "stderr": proc.stderr, "stdout": proc.stdout}
     import json
 
     try:
         parsed = json.loads(proc.stdout)
-        ok_flag = bool(
-            parsed.get("ok")
-            or parsed.get("rigor_passed")
-            or (parsed.get("verification") or {}).get("ok")
-        )
-        return {"ok": ok_flag, "report": parsed}
+        if "ok" in parsed:
+            ok_flag = bool(parsed["ok"]) and proc.returncode == 0
+        else:
+            ok_flag = (
+                bool(parsed.get("rigor_passed") or (parsed.get("verification") or {}).get("ok"))
+                and proc.returncode == 0
+            )
+        return {
+            "ok": ok_flag,
+            "returncode": proc.returncode,
+            "verification_mode": parsed.get("verification_mode", "synthetic_contract_smoke"),
+            "live_library_installed": bool(parsed.get("live_library_installed", False)),
+            "report": parsed,
+        }
     except Exception:  # noqa: BLE001
-        return {"ok": False, "stdout": proc.stdout, "stderr": proc.stderr}
+        return {"ok": False, "returncode": proc.returncode, "stdout": proc.stdout, "stderr": proc.stderr}

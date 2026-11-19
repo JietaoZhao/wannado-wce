@@ -29,6 +29,7 @@ from wannado.wce.core.units import (
     thermal_noise_power_watt,
 )
 from wannado.wce.core.utils import complex_normal, resolve_device, set_global_seed
+from wannado.wce.standards.etsi_ieee import itur_p618_rain_attenuation_db, itur_p676_path_absorption_db
 from wannado.wce.standards.gpp_extensions import interpolate_ntn_params
 
 _EARTH_RADIUS_KM = 6371.0
@@ -63,7 +64,7 @@ META = WCEMeta(
 
 @dataclass
 class NTNLEOConfig:
-    env_type: Literal["urban", "suburban", "rural"] = "suburban"
+    env_type: Literal["dense_urban", "urban", "suburban", "rural"] = "suburban"
     orbit_altitude_km: float = 600.0
     elevation_deg: float = 30.0
     fc_ghz: float = 2.0
@@ -71,6 +72,8 @@ class NTNLEOConfig:
     eirp_dbw: float = 48.0
     rx_antenna_gain_dbi: float = 0.0
     noise_figure_db: float = 7.0
+    rain_rate_mm_hr: float = 0.0
+    water_vapor_g_m3: float = 7.5
     num_samples: int = 256
     device: str = "auto"
     seed: int = 42
@@ -83,7 +86,7 @@ def _slant_range_km(alt_km: float, elev_deg: float) -> float:
 
 
 def provision_ntn_leo_satellite(config: NTNLEOConfig | None = None, **overrides: Any) -> ProvisionResult:
-    """Provision 3GPP TR 38.811/38.821 LEO satellite channel link budget, clutter, Doppler, and Rician fading."""
+    """Provision 3GPP TR 38.811/38.821 LEO satellite channel link budget, band-aware clutter, gases, Doppler, and Rician fading."""
     cfg = config or NTNLEOConfig()
     if overrides:
         cfg = NTNLEOConfig(**{**asdict(cfg), **overrides})
@@ -91,7 +94,7 @@ def provision_ntn_leo_satellite(config: NTNLEOConfig | None = None, **overrides:
     rng = set_global_seed(cfg.seed)
     dev = resolve_device(cfg.device)
 
-    ntn = interpolate_ntn_params(cfg.env_type, cfg.elevation_deg)
+    ntn = interpolate_ntn_params(cfg.env_type, cfg.elevation_deg, fc_ghz=cfg.fc_ghz)
     slant_km = _slant_range_km(cfg.orbit_altitude_km, cfg.elevation_deg)
     slant_m = slant_km * 1e3
     delay_ms = (slant_m / SPEED_OF_LIGHT_MPS) * 1e3
@@ -102,10 +105,25 @@ def provision_ntn_leo_satellite(config: NTNLEOConfig | None = None, **overrides:
     doppler_hz = (v_orb_mps * radial_scale * cfg.fc_ghz * 1e9) / SPEED_OF_LIGHT_MPS
 
     fspl_db = 32.45 + 20.0 * math.log10(cfg.fc_ghz) + 20.0 * math.log10(slant_m)
+    atm_gas_db = float(
+        itur_p676_path_absorption_db(
+            cfg.fc_ghz,
+            slant_m,
+            water_vapor_g_m3=cfg.water_vapor_g_m3,
+            elevation_deg=cfg.elevation_deg,
+        )
+    )
+    rain_db = (
+        float(itur_p618_rain_attenuation_db(cfg.fc_ghz, slant_m, rain_rate_mm_hr=cfg.rain_rate_mm_hr, elevation_deg=cfg.elevation_deg))
+        if cfg.rain_rate_mm_hr > 0.0
+        else 0.0
+    )
+
     is_los = rng.uniform(0.0, 1.0, size=cfg.num_samples) < ntn["los_prob"]
     clutter_db = np.where(is_los, 0.0, ntn["clutter_loss_db"])
-    sf_db = rng.normal(0.0, ntn["sf_std_db"], size=cfg.num_samples)
-    total_pl_db = fspl_db + clutter_db + sf_db
+    sf_std_arr = np.where(is_los, ntn["sf_std_db"], ntn["sf_nlos_db"])
+    sf_db = rng.normal(0.0, sf_std_arr, size=cfg.num_samples)
+    total_pl_db = fspl_db + clutter_db + atm_gas_db + rain_db + sf_db
 
     tx_dbm = cfg.eirp_dbw + 30.0
     rx_power_dbm = tx_dbm + cfg.rx_antenna_gain_dbi - total_pl_db
@@ -120,7 +138,7 @@ def provision_ntn_leo_satellite(config: NTNLEOConfig | None = None, **overrides:
 
     prov = [
         ParamProvenance("orbit_altitude_km", cfg.orbit_altitude_km, "km", "LEO satellite altitude", "gpp_tr38821", "Clause 5.1", "3gpp_tr38821", "Standard TR 38.821 600 km / 1200 km LEO reference orbit."),
-        ParamProvenance("elevation_deg", cfg.elevation_deg, "deg", "Elevation look angle above horizon", "gpp_tr38811", "Table 6.6.2-1", "3gpp_tr38811", f"Sets LoS prob={ntn['los_prob']:.3f}, K={ntn['rician_k_db']:.1f} dB, clutter={ntn['clutter_loss_db']:.1f} dB."),
+        ParamProvenance("elevation_deg", cfg.elevation_deg, "deg", "Elevation look angle above horizon", "gpp_tr38811", "Table 6.6.2-1/2/3", "3gpp_tr38811", f"Band-aware ({'Ka' if cfg.fc_ghz >= 10.0 else 'S'}-band) LoS prob={ntn['los_prob']:.3f}, K={ntn['rician_k_db']:.1f} dB, CL={ntn['clutter_loss_db']:.1f} dB."),
     ]
     return ProvisionResult(
         block_id=META.id,
@@ -133,6 +151,9 @@ def provision_ntn_leo_satellite(config: NTNLEOConfig | None = None, **overrides:
             "one_way_delay_ms": delay_ms,
             "orbital_doppler_hz": doppler_hz,
             "fspl_db": fspl_db,
+            "atmospheric_gas_loss_db": atm_gas_db,
+            "rain_attenuation_db": rain_db,
+            "mean_clutter_loss_db": float(np.mean(clutter_db)),
             "los_probability": ntn["los_prob"],
             "rician_k_db": ntn["rician_k_db"],
             "median_snr_db": float(np.median(linear_to_db(snr_lin))),

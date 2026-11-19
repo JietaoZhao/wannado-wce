@@ -43,7 +43,7 @@ META = WCEMeta(
         "bob_snr_db": "Legitimate receiver Bob's average SNR.",
         "eve_snr_db": "Eavesdropper/Warden Eve's average SNR.",
     },
-    extension_hooks=("Export tensors['iq_signal'] + tensors['jammed_signal'] to wannado-adv VictimInterface",),
+    extension_hooks=("Export tensors['iq_clean'] + tensors['iq_jammed'] to wannado-adv VictimInterface",),
     module_path="wannado.wce.blocks.domain_6g.pls_covert_antijamming",
     default_mechanisms=("wyner_wiretap_secrecy", "bash_covert_sqrt_law", "sadeghi_rf_adversarial"),
     citation=MECHANISM_PROVENANCE["sadeghi_rf_adversarial"].citation,

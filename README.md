@@ -6,7 +6,7 @@
 
 **Standards-Anchored, Just-in-Time (JIT) Wireless Communication Environment Quick Provisioning for 5G-Advanced, 6G / IMT-2030, ISAC, RIS, Near-Field XL-MIMO, NTN, UAV, V2X, and AI-Native Networks**
 
-[![Version](https://img.shields.io/badge/version-1.1.3-2563eb)](https://github.com/JietaoZhao/wannado-wce/blob/main/pyproject.toml)
+[![Version](https://img.shields.io/badge/version-1.2.0-2563eb)](https://github.com/JietaoZhao/wannado-wce/blob/main/pyproject.toml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-0f766e)](https://github.com/JietaoZhao/wannado-wce/blob/main/pyproject.toml)
 [![Standards](https://img.shields.io/badge/standards-21%20ITU%2F3GPP%2FETSI%2FIEEE-7c3aed)](#1-authoritative-standards--scenario-matrix-21-standards--6-imt-2030-scenarios)
 [![Blocks](https://img.shields.io/badge/executable%20blocks-33%20single--file-059669)](#2-the-33-block-single-file-arsenal-classic--2025-frontier)
@@ -19,7 +19,8 @@
 1. **Traverses & Diagnoses First**: Reads your workspace (`torch`, `gymnasium`, ray-tracing configs, sibling `./drl_lab/` or `./adv_eval/`) and infers a Stage 0 `WCESpec`.
 2. **Anchors Every Knob to Authority**: Maps **every physical setting** (pathloss, LoS probability, NR numerology, O2I loss, antenna spacing, Doppler, traffic queue, clutter/RCS) to **21 codified ITU-R / 3GPP / ETSI / IEEE standards** and canonical papers.
 3. **Executes Just-in-Time (JIT) Assembly**: Uses fast built-in PyTorch/NumPy **Tier 0** kernels immediately, while recommending and scripting exact pull commands for **18 external simulators/libraries** (Sionna RT, DeepMIMO, QuaDRiGa, ns-3/5G-LENA, OpenAirInterface, srsRAN, FlexRIC, pyAerial, HermesPy, TorchSig) **only after** checking your OS/GPU/disk compatibility and confirming with you.
-4. **Audits 7 Physical & Statistical Traps**: Automatically flags channel power drift, dB/linear noise bugs, future CSI leakage, Doppler coherence violations, passive RIS `|phi_m| > 1`, far-field misuse inside the Rayleigh distance `Z_R = 2D^2/lambda`, and missing classical analytical baselines.
+4. **Audits 10 Physical, Statistical & Provenance Traps (`RigorAuditor 2.0` + `wannado-wce verify`)**: Automatically flags channel power drift, dB/linear noise bugs, future CSI leakage, Doppler coherence violations, passive RIS `|phi_m| > 1`, far-field misuse inside the Rayleigh distance `Z_R = 2D^2/lambda`, missing classical baselines, zero-variance deterministic stubs, coarse RIS quantization / aperture mismatches, and incomplete `Table I` provenance.
+5. **Link-Level Coded OFDM-MIMO PHY (`evaluate_link_level_phy`)**: Includes lightweight systematic Rate-1/2 (`K=64, N=128`) dual-diagonal LDPC + Normalized Min-Sum BP decoding (fast pure-PyTorch smoke/waterfall engine distinct from full 3GPP TS 38.212 BG1/BG2 codes), Gray QPSK/16QAM/64QAM, comb-pilot `LS`/`LMMSE`/`Genie` channel estimation, and unprecoded `min(Nr, Nt)`-stream `MMSE`/`ZF`/`MRC` equalization over WCE channels.
 5. **Exports Camera-Ready Provenance (`Table I`)**: Generates `environment_provenance.md` (with complete per-parameter **`Table I`** rationale), `paper_params_table.tex` (`booktabs` LaTeX), `paper_results_table.tex`, verified zero-hallucination `references.bib`, `wce_report.json`, and multi-seed CDF/IQM plots.
 
 ---
@@ -43,7 +44,10 @@ python3 ./wce_lab/run_provision.py --seeds 0 1 2
 # Live parameter tuning with automatic Rayleigh near-field / >100 GHz boundary alerts & Table I diff:
 wannado-wce diff-spec --spec ./wce_lab/wce_spec.json --request "Switch carrier frequency to 140 GHz" --save
 
-# Verify OS/Docker/disk & generate normalized complex64 external simulator glue before downloading:
+# Run the 10-check automated verification gate (Physics, RigorAuditor 2.0, multi-seed + link-level PHY):
+wannado-wce verify --query "64-element passive RIS MIMO at 28 GHz" --seeds 0 1 2
+
+# Check OS/Docker/disk & run contract smoke (`--require-live` when simulator deps are installed):
 wannado-wce jit-recipe sionna_rt --write-dir ./wce_lab/adapters --verify
 ```
 
@@ -102,10 +106,13 @@ Running [`benchmarks/bench_3gpp_and_imt2030.py`](https://github.com/JietaoZhao/w
 
 ![Near-Field XL-MIMO, WMMSE/ZF/MRT & Pilot CSI Baselines](https://raw.githubusercontent.com/JietaoZhao/wannado-wce/main/benchmarks/assets/ris_nearfield_baselines.png)
 
+### Link-Level Coded OFDM-MIMO PHY (`evaluate_link_level_phy`)
+![Link-Level OFDM-MIMO LDPC BLER, EVM & Pilot Channel Estimation](https://raw.githubusercontent.com/JietaoZhao/wannado-wce/main/benchmarks/assets/link_level_ofdm_bler.png)
+
 - **TR 38.901 & TR 38.811 Fidelity**: Verified dual-slope pathloss transitions across `UMa`/`UMi`/`RMa`/`InF` and LEO `600 km` elevation SNR monotonicity (`10°` → `90°`: `-6.92 dB` → `+3.77 dB` in S-band).
 - **Polyanskiy FBL URLLC Penalty**: At `SNR = 10 dB`, finite blocklength `n = 64` achieves `2.69 bps/Hz` (`BLER = 1e-5`) vs the infinite-blocklength Shannon ceiling (`3.46 bps/Hz`), exposing short-packet capacity overestimation.
 - **Near-Field Beamfocusing Breakdown**: At `100 GHz` with `N_t = 128` (`Z_R = 24.2 m`), planar far-field steering alignment collapses to `0.42` at `3 m` before smoothly recovering toward `1.00` past `Z_R`.
-- **Unit Tests**: Verified across all 33 blocks, 4-slot compositional assembly, `ComposedWirelessEnv`, `LiveProvenance Diff`, JIT adapter self-tests, 7 rigor traps, CLI subcommands, and 3-way `wannado.*` namespace coexistence via `python3 -m unittest discover -s tests -v`.
+- **Unit Tests**: Verified across all 33 blocks, standards calibration (TR 38.901 / TR 36.777 UAV / TR 38.811 NTN / ITU-R P.676), link-level LDPC/OFDM-MIMO PHY, 4-slot compositional assembly, multi-user `ComposedWirelessEnv`, `LiveProvenance Diff`, honest JIT adapter self-tests (`synthetic_contract_smoke` vs `--require-live`), 10-check `RigorAuditor 2.0` + `wannado-wce verify`, CLI subcommands, and 3-way `wannado.*` namespace coexistence via `pytest`.
 
 ---
 
@@ -125,7 +132,8 @@ All packages in the **WannaDo Series** share the strict **PEP 420** namespace `w
 wannado-wce inspect . --query "..."          # Traverse codebase & surface clues + dialog + JIT brief
 wannado-wce compose "28 GHz UAV STAR-RIS ISAC" # 4-slot compositional assembler -> coupled WCESpec + Table I
 wannado-wce diff-spec --spec ./wce_lab/wce_spec.json --request "Switch carrier frequency to 140 GHz" --save
-wannado-wce jit-recipe sionna_rt --verify    # Platform/disk check + complex64 normalized adapter self-test
+wannado-wce verify --dir ./wce_lab --seeds 0 1 2       # 10-check RigorAuditor 2.0 + link-level PHY gate
+wannado-wce jit-recipe sionna_rt --verify            # Platform/disk check + contract smoke (`--require-live` for runtime probe)
 wannado-wce arsenal                          # View 33 blocks across 6 families (classic -> frontier)
 wannado-wce standards --org 3GPP             # Filter 21 codified ITU-R / 3GPP / ETSI / IEEE specs
 wannado-wce ecosystem --probe                # Check OS/GPU/Python/CLI readiness for 18 external tools

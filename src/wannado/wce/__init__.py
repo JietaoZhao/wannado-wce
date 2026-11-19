@@ -11,7 +11,7 @@ from typing import Any
 
 from wannado.wce.blocks import BLOCK_EXPORTS, lazy_resolve
 
-__version__ = "1.1.3"
+__version__ = "1.2.0"
 
 _SUBMODULES = frozenset(
     {
@@ -42,11 +42,13 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "compose_wce_spec": ("wannado.wce.intake", "compose_wce_spec"),
     "parse_param_updates_from_text": ("wannado.wce.intake", "parse_param_updates_from_text"),
     "update_wce_spec_with_diff": ("wannado.wce.intake", "update_wce_spec_with_diff"),
-    # Stage 1 preflight & Stage 3 wireless physics rigor auditor
+    # Stage 1 preflight, Stage 3 wireless physics rigor auditor & one-command verify gate
     "PreflightReport": ("wannado.wce.audit", "PreflightReport"),
     "RigorAuditReport": ("wannado.wce.audit", "RigorAuditReport"),
+    "WCEVerifyReport": ("wannado.wce.audit", "WCEVerifyReport"),
     "audit_wce_rigor": ("wannado.wce.audit", "audit_wce_rigor"),
     "preflight_wce": ("wannado.wce.audit", "preflight_wce"),
+    "verify_wce_target": ("wannado.wce.audit", "verify_wce_target"),
     # Stage 2 AI Co-Pilot inspection, arsenal, dialogs, zero-jargon guides & ETA
     "ProjectScan": ("wannado.wce.copilot", "ProjectScan"),
     "RuntimeEstimate": ("wannado.wce.copilot", "RuntimeEstimate"),
@@ -67,11 +69,15 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "FederatedRoundResult": ("wannado.wce.workspace", "FederatedRoundResult"),
     "FederatedWirelessRoundModel": ("wannado.wce.workspace", "FederatedWirelessRoundModel"),
     "LinkDeliveryResult": ("wannado.wce.workspace", "LinkDeliveryResult"),
+    "LinkLevelPHYConfig": ("wannado.wce.workspace", "LinkLevelPHYConfig"),
+    "LinkLevelPHYResult": ("wannado.wce.workspace", "LinkLevelPHYResult"),
     "WirelessEnvInterface": ("wannado.wce.workspace", "WirelessEnvInterface"),
     "eject_block": ("wannado.wce.workspace", "eject_block"),
     "evaluate_link_delivery": ("wannado.wce.workspace", "evaluate_link_delivery"),
+    "evaluate_link_level_phy": ("wannado.wce.workspace", "evaluate_link_level_phy"),
     "scaffold_wce_lab": ("wannado.wce.workspace", "scaffold_wce_lab"),
     "simulate_federated_round": ("wannado.wce.workspace", "simulate_federated_round"),
+    "sweep_link_level_bler": ("wannado.wce.workspace", "sweep_link_level_bler"),
     # Stage 4 traceable provenance reporter & zero-hallucination citations
     "BlockExperimentSummary": ("wannado.wce.reporter", "BlockExperimentSummary"),
     "WCEReport": ("wannado.wce.reporter", "WCEReport"),
@@ -145,6 +151,8 @@ __all__ = [
     "JITAdapterRecipe",
     "JITProvisioningPlan",
     "LinkDeliveryResult",
+    "LinkLevelPHYConfig",
+    "LinkLevelPHYResult",
     "LitCitation",
     "MixedTrafficConfig",
     "MultiCellMACConfig",
@@ -176,6 +184,7 @@ __all__ = [
     "WCEMeta",
     "WCEReport",
     "WCESpec",
+    "WCEVerifyReport",
     "WMMSEConfig",
     "WaterFillingConfig",
     "WiFiSensingConfig",
@@ -200,6 +209,7 @@ __all__ = [
     "eject_block",
     "estimate_runtime",
     "evaluate_link_delivery",
+    "evaluate_link_level_phy",
     "evaluate_wce_suite",
     "explain_parameters",
     "export_citations",
@@ -257,9 +267,11 @@ __all__ = [
     "scaffold_wce_lab",
     "scan_project",
     "simulate_federated_round",
+    "sweep_link_level_bler",
     "update_wce_spec_with_diff",
     "verify_external_channel_adapter",
     "verify_jit_adapter_file",
+    "verify_wce_target",
     "write_jit_adapter_bundle",
 ]
 

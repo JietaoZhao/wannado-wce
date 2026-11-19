@@ -216,20 +216,20 @@ class WCEReport:
     notes: str = ""
 
     def all_parameter_provenance(self) -> list[ParamProvenance]:
-        """Merge Stage 0 WCESpec parameter provenance with block-level ParamProvenance without duplicates."""
+        """Merge Stage 0 WCESpec parameter provenance with block-level ParamProvenance without contradictory duplicates."""
         merged: list[ParamProvenance] = []
-        seen: set[tuple[str, str]] = set()
+        seen_params: set[str] = set()
         if self.wce_spec is not None:
             for p in self.wce_spec.parameter_provenance:
-                sig = (p.parameter, str(p.value))
-                if sig not in seen:
-                    seen.add(sig)
+                key = str(p.parameter)
+                if key not in seen_params:
+                    seen_params.add(key)
                     merged.append(p)
         for s in self.block_summaries:
             for p in s.parameter_provenance:
-                sig = (p.parameter, str(p.value))
-                if sig not in seen:
-                    seen.add(sig)
+                key = str(p.parameter)
+                if key not in seen_params:
+                    seen_params.add(key)
                     merged.append(p)
         return merged
 
@@ -530,8 +530,11 @@ def build_block_config(block_id: str, wce_spec: WCESpec | None = None, **overrid
             "tx_ny": tx_ny,
             "num_tx_x": wce_spec.num_tx,
             "num_tx_y": 1,
-            "num_ris_elements": max(16, int(wce_spec.num_tx) * 4),
-            "num_star_elements": max(16, int(wce_spec.num_tx) * 4),
+            "num_ris_elements": wce_spec.num_ris_elements if wce_spec.num_ris_elements > 0 else 64,
+            "num_star_elements": wce_spec.num_ris_elements if wce_spec.num_ris_elements > 0 else 64,
+            "uav_altitude_m": wce_spec.uav_altitude_m,
+            "orbit_altitude_km": wce_spec.ntn_orbit_altitude_km,
+            "elevation_deg": wce_spec.ntn_elevation_deg,
             "user_distance_m": d_min,
             "comm_user_distance_m": d_min,
             "target_range_m": d_min,

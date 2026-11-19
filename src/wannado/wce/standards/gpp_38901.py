@@ -145,6 +145,38 @@ def compute_los_probability_tr38901(
     raise ValueError(f"Unsupported TR 38.901 scenario '{scenario}'.")
 
 
+# TR 38.901 Table 7.5-6 LOS Ricean K-factor (mean_dB, std_dB)
+TR38901_K_FACTOR_DB: dict[str, tuple[float, float]] = {
+    "UMa": (9.0, 3.5),
+    "UMi": (9.0, 5.0),
+    "RMa": (7.0, 4.0),
+    "InH": (7.0, 4.0),
+}
+
+
+def compute_tr38901_uma_he(
+    d_2d_m: np.ndarray,
+    h_ut_m: float,
+    *,
+    rng: np.random.Generator | None = None,
+) -> np.ndarray:
+    """Effective environment height h_E per 3GPP TR 38.901 Table 7.4.1-1 Note 1."""
+    d2 = np.asarray(d_2d_m, dtype=np.float64)
+    if h_ut_m <= 13.0:
+        return np.ones_like(d2, dtype=np.float64)
+    c_h = ((h_ut_m - 13.0) / 10.0) ** 1.5
+    g_d = np.where(d2 <= 18.0, 0.0, (5.0 / 4.0) * ((d2 / 100.0) ** 3) * np.exp(-d2 / 150.0))
+    prob_he1 = 1.0 / (1.0 + g_d * c_h)
+    max_disc = max(12.0, math.floor((h_ut_m - 1.5) / 3.0) * 3.0)
+    disc_choices = np.arange(12.0, max_disc + 0.1, 3.0, dtype=np.float64)
+    if rng is None:
+        mean_disc = float(np.mean(disc_choices))
+        return prob_he1 * 1.0 + (1.0 - prob_he1) * mean_disc
+    u = rng.uniform(0.0, 1.0, size=d2.shape)
+    sampled_disc = rng.choice(disc_choices, size=d2.shape)
+    return np.where(u < prob_he1, 1.0, sampled_disc)
+
+
 def _select_sf_std(los_mask: np.ndarray, sf_los: float, sf_nlos: float) -> float | np.ndarray:
     """Return scalar sigma_SF when all links share the same state, else per-link array."""
     if bool(np.all(los_mask)):
@@ -164,6 +196,7 @@ def compute_pathloss_tr38901_db(
     h_ut_m: float = 1.5,
     avg_building_h_m: float = 5.0,
     avg_street_w_m: float = 20.0,
+    rng: np.random.Generator | None = None,
 ) -> tuple[np.ndarray, float | np.ndarray]:
     """Compute (PathLoss_dB, shadow_fading_std_dB) per 3GPP TR 38.901 Table 7.4.1-1."""
     d2 = np.maximum(np.asarray(d_2d_m, dtype=np.float64), 1.0)
@@ -173,11 +206,11 @@ def compute_pathloss_tr38901_db(
     fc_hz = fc * 1e9
 
     if scenario == "UMa":
-        h_e = 1.0
-        d_bp = 4.0 * max(1.0, h_bs_m - h_e) * max(0.5, h_ut_m - h_e) * fc_hz / SPEED_OF_LIGHT_MPS
+        h_e_uma = compute_tr38901_uma_he(d2, h_ut_m, rng=rng)
+        d_bp_uma = 4.0 * np.maximum(1.0, h_bs_m - h_e_uma) * np.maximum(0.5, h_ut_m - h_e_uma) * fc_hz / SPEED_OF_LIGHT_MPS
         pl1 = 28.0 + 22.0 * np.log10(d3) + 20.0 * math.log10(fc)
-        pl2 = 28.0 + 40.0 * np.log10(d3) + 20.0 * math.log10(fc) - 9.0 * math.log10(d_bp ** 2 + (h_bs_m - h_ut_m) ** 2)
-        pl_los = np.where(d2 <= d_bp, pl1, pl2)
+        pl2 = 28.0 + 40.0 * np.log10(d3) + 20.0 * math.log10(fc) - 9.0 * np.log10(d_bp_uma ** 2 + (h_bs_m - h_ut_m) ** 2)
+        pl_los = np.where(d2 <= d_bp_uma, pl1, pl2)
         pl_nlos_raw = 13.54 + 39.08 * np.log10(d3) + 20.0 * math.log10(fc) - 0.6 * (h_ut_m - 1.5)
         pl_nlos = np.maximum(pl_los, pl_nlos_raw)
         pl = np.where(los_mask, pl_los, pl_nlos)
@@ -199,7 +232,7 @@ def compute_pathloss_tr38901_db(
     if scenario == "RMa":
         h = avg_building_h_m
         w = avg_street_w_m
-        d_bp = 2.0 * math.pi * h_bs_m * h_ut_m * fc_hz / SPEED_OF_LIGHT_MPS
+        d_bp_rma = 2.0 * math.pi * h_bs_m * h_ut_m * fc_hz / SPEED_OF_LIGHT_MPS
         def _pl1(dist: np.ndarray | float) -> np.ndarray | float:
             return (
                 20.0 * np.log10(40.0 * math.pi * dist * fc / 3.0)
@@ -207,7 +240,7 @@ def compute_pathloss_tr38901_db(
                 - min(0.044 * (h ** 1.72), 14.77)
                 + 0.002 * math.log10(max(h, 1.1)) * dist
             )
-        pl_los = np.where(d2 <= d_bp, _pl1(d3), _pl1(d_bp) + 40.0 * np.log10(d3 / max(d_bp, 1.0)))
+        pl_los = np.where(d2 <= d_bp_rma, _pl1(d3), _pl1(d_bp_rma) + 40.0 * np.log10(d3 / max(d_bp_rma, 1.0)))
         pl_nlos_raw = (
             161.04
             - 7.1 * math.log10(w)

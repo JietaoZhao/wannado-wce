@@ -89,8 +89,10 @@ def provision_tr38901_cdl_tdl(config: CDLTDLConfig | None = None, **overrides: A
     p_lin = torch.pow(10.0, torch.as_tensor(prof["powers_db"], device=dev, dtype=torch.float32) / 10.0)
     p_lin = p_lin / p_lin.sum()
     n_taps = delays_sec.shape[0]
+    k_db = float(prof.get("k_db", float("-inf")))
+    has_los_ray = math.isfinite(k_db)
 
-    # Spatial steering (CDL uses tabulated AoD/AoA; TDL uses i.i.d. MIMO)
+    # Spatial steering (CDL uses sub-ray angular spread; TDL uses i.i.d. MIMO; D/E profiles honor k_db LoS ray)
     fd = doppler_max_hz(cfg.speed_mps, cfg.fc_ghz * 1e9)
     t_grid = torch.arange(cfg.num_slots, device=dev, dtype=torch.float32) * slot_sec
     f_grid = (torch.arange(cfg.num_subcarriers, device=dev, dtype=torch.float32) - 0.5 * cfg.num_subcarriers) * scs_hz
@@ -98,21 +100,50 @@ def provision_tr38901_cdl_tdl(config: CDLTDLConfig | None = None, **overrides: A
     tap_angles = (torch.rand((cfg.batch_size, n_taps), device=dev) * 2.0 - 1.0) * math.pi
     doppler_phase = 2.0 * math.pi * fd * torch.cos(tap_angles).unsqueeze(-1) * t_grid  # (B, L, T)
     freq_phase = -2.0 * math.pi * delays_sec.unsqueeze(-1) * f_grid  # (L, Nsc)
-
-    if is_cdl:
-        aod_rad = torch.deg2rad(torch.as_tensor(prof["aod_deg"], device=dev, dtype=torch.float32))
-        aoa_rad = torch.deg2rad(torch.as_tensor(prof["aoa_deg"], device=dev, dtype=torch.float32))
-        a_tx = ula_farfield_steering(cfg.num_tx, aod_rad)  # (L, Nt)
-        a_rx = ula_farfield_steering(cfg.num_rx, aoa_rad)  # (L, Nr)
-        coeff = complex_normal((cfg.batch_size, n_taps), variance=1.0, device=dev) * torch.sqrt(p_lin * cfg.num_tx * cfg.num_rx)
-        spatial = torch.einsum("bl,ln,lm->blnm", coeff, a_rx, a_tx.conj())  # (B, L, Nr, Nt)
-    else:
-        spatial = complex_normal((cfg.batch_size, n_taps, cfg.num_rx, cfg.num_tx), variance=1.0, device=dev) * torch.sqrt(p_lin).view(1, n_taps, 1, 1)
-
     tf_phase = torch.complex(
         torch.cos(freq_phase.unsqueeze(0).unsqueeze(-1) + doppler_phase.unsqueeze(2)),
         torch.sin(freq_phase.unsqueeze(0).unsqueeze(-1) + doppler_phase.unsqueeze(2)),
     )  # (B, L, Nsc, T)
+
+    if is_cdl:
+        aod_rad = torch.deg2rad(torch.as_tensor(prof["aod_deg"], device=dev, dtype=torch.float32))
+        aoa_rad = torch.deg2rad(torch.as_tensor(prof["aoa_deg"], device=dev, dtype=torch.float32))
+        # Expand each NLOS cluster into sub-rays across cluster angular spread (~3 deg ASD / ~8 deg ASA)
+        n_sub = 8
+        offsets = torch.linspace(-1.0, 1.0, n_sub, device=dev, dtype=torch.float32)
+        sub_aod = aod_rad.unsqueeze(-1) + offsets * math.radians(3.0)
+        sub_aoa = aoa_rad.unsqueeze(-1) + offsets * math.radians(8.0)
+        a_tx = ula_farfield_steering(cfg.num_tx, sub_aod)  # (L, M, Nt)
+        a_rx = ula_farfield_steering(cfg.num_rx, sub_aoa)  # (L, M, Nr)
+        ray_coeff = complex_normal((cfg.batch_size, n_taps, n_sub), variance=1.0 / n_sub, device=dev)
+        spatial_nlos = math.sqrt(cfg.num_tx * cfg.num_rx) * torch.einsum("blm,lmn,lmk->blnk", ray_coeff, a_rx, a_tx.conj())
+        if has_los_ray:
+            k_lin = 10.0 ** (k_db / 10.0)
+            w_nlos = math.sqrt(1.0 / (k_lin + 1.0))
+            w_los = math.sqrt(k_lin / (k_lin + 1.0))
+            a_tx0 = ula_farfield_steering(cfg.num_tx, aod_rad[:1])
+            a_rx0 = ula_farfield_steering(cfg.num_rx, aoa_rad[:1])
+            phi0 = torch.rand((cfg.batch_size, 1, 1), device=dev) * (2.0 * math.pi)
+            h_los0 = math.sqrt(cfg.num_tx * cfg.num_rx) * torch.complex(torch.cos(phi0), torch.sin(phi0)) * torch.einsum(
+                "ln,lm->lnm", a_rx0, a_tx0.conj()
+            )
+            spatial = spatial_nlos * (w_nlos * torch.sqrt(p_lin)).view(1, n_taps, 1, 1)
+            # Combine specular LoS energy onto tap 0 (normalized over tap powers)
+            spatial[:, 0] = spatial[:, 0] + w_los * h_los0
+        else:
+            spatial = spatial_nlos * torch.sqrt(p_lin).view(1, n_taps, 1, 1)
+    else:
+        spatial_nlos = complex_normal((cfg.batch_size, n_taps, cfg.num_rx, cfg.num_tx), variance=1.0, device=dev)
+        if has_los_ray:
+            k_lin = 10.0 ** (k_db / 10.0)
+            w_nlos = math.sqrt(1.0 / (k_lin + 1.0))
+            w_los = math.sqrt(k_lin / (k_lin + 1.0))
+            phi0 = torch.rand((cfg.batch_size, 1, 1), device=dev) * (2.0 * math.pi)
+            spatial = spatial_nlos * (w_nlos * torch.sqrt(p_lin)).view(1, n_taps, 1, 1)
+            spatial[:, 0] = spatial[:, 0] + w_los * torch.complex(torch.cos(phi0), torch.sin(phi0))
+        else:
+            spatial = spatial_nlos * torch.sqrt(p_lin).view(1, n_taps, 1, 1)
+
     h_freq = torch.einsum("blnm,blft->bnmft", spatial, tf_phase).to(torch.complex64)
 
     prov = [

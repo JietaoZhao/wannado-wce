@@ -127,14 +127,43 @@ def _extract_numeric_clues(query: str) -> dict[str, Any]:
         scale = {"khz": 1e3, "mhz": 1e6, "ghz": 1e9}[unit]
         extracted["bandwidth_hz"] = val * scale
 
+    # Extract RIS/IRS/STAR-RIS element counts SEPARATELY from BS/UE antenna counts (no conflation or 4x inflation)
     m_ris = re.search(
-        r"(\d+)\s*(?:(?:bs|tx|rx|base\s+station|elements?|元|个|阵元)\s*){0,2}"
-        r"(?:ris|irs|star-ris|star_ris|超表面|天线|antennas?|xl-mimo)",
+        r"(\d+)\s*(?:-|\s+)?(?:(?:passive|active|star|reflecting)\s+)?(?:elements?|元|个|阵元)?\s*(?:-|\s+)?"
+        r"(?:star[-_ ]?ris|active[-_ ]?ris|ris|irs|超表面|反射面)",
+        q,
+    ) or re.search(
+        r"(?:star[-_ ]?ris|active[-_ ]?ris|ris|irs|超表面|反射面)(?:\s+to|\s+with|\s+of)?\s+(\d+)\s*(?:-|\s+)?(?:elements?|元|个|阵元)?",
         q,
     )
     if m_ris:
-        n_el = max(4, min(2048, int(m_ris.group(1))))
-        extracted["num_tx"] = n_el
+        extracted["num_ris_elements"] = max(4, min(4096, int(m_ris.group(1))))
+
+    m_ant = re.search(
+        r"(\d+)\s*(?:[x×]\s*(\d+)\s*)?(?:-|\s+)?(?:bs|tx|rx|base\s+station)?\s*(?:-|\s+)?"
+        r"(?:antennas?|ant|tx|mimo|天线|xl-mimo|elaa)",
+        q,
+    )
+    if m_ant:
+        extracted["num_tx"] = max(1, min(2048, int(m_ant.group(1))))
+        if m_ant.group(2):
+            extracted["num_rx"] = max(1, min(256, int(m_ant.group(2))))
+
+    m_bits = re.search(r"(\d+)\s*(?:-|\s+)?bits?(?:\s+(?:ris|irs|phase|quantiz))?", q)
+    if m_bits and any(k in q for k in ("ris", "irs", "phase", "quantiz", "超表面")):
+        extracted["ris_phase_bits"] = max(1, min(8, int(m_bits.group(1))))
+
+    m_alt = re.search(r"(?:altitude|height|alt|高度|悬停)[^0-9]{0,12}(\d+(?:\.\d+)?)\s*m\b", q)
+    if m_alt:
+        extracted["uav_altitude_m"] = float(m_alt.group(1))
+
+    m_el = re.search(r"(?:elevation|仰角)[^0-9]{0,12}(\d+(?:\.\d+)?)\s*(?:deg|°)?", q)
+    if m_el:
+        extracted["ntn_elevation_deg"] = float(m_el.group(1))
+
+    m_orb = re.search(r"(\d+(?:\.\d+)?)\s*km\s*(?:leo|orbit|altitude|satellite)", q)
+    if m_orb:
+        extracted["ntn_orbit_altitude_km"] = float(m_orb.group(1))
 
     m_dist = re.search(r"(\d+(?:\.\d+)?)\s*m(?:eters?)?\s*(?:距离|distance|内|外|range)?", q)
     if m_dist and any(k in q for k in ("距离", "distance", "近场", "near-field", "nearfield", "米")):
@@ -319,6 +348,43 @@ def _sync_provenance_and_physics(spec: WCESpec, *, triggered_rules: list[str], a
                 auth,
                 card["summary_plain"][:42] + ("..." if len(card["summary_plain"]) > 42 else ""),
                 card["diff_from_parent"],
+            )
+        )
+    if spec.num_ris_elements > 0 or any(b in spec.blocks_selected for b in ("passive_ris_cascade", "star_ris", "active_ris_flexible")):
+        n_el_eff = spec.num_ris_elements if spec.num_ris_elements > 0 else 64
+        rows.append(
+            _prov(
+                "num_ris_elements",
+                n_el_eff,
+                "elements",
+                f"RIS meta-atoms M (phase_bits={spec.ris_phase_bits or 'continuous'})",
+                "wu_zhang_passive_ris",
+                "ETSI GR RIS 003 / IEEE TWC 2019",
+                "Explicitly tracks metasurface element count M separately from BS antennas N_t without artificial inflation.",
+            )
+        )
+    if "uav_air_to_ground" in spec.blocks_selected:
+        rows.append(
+            _prov(
+                "uav_altitude_m",
+                round(spec.uav_altitude_m, 1),
+                "m",
+                "UAV flight height above ground",
+                "gpp_tr36777",
+                "Table B-1",
+                "Determines aerial LoS probability & shadow fading scaling up to 300 m.",
+            )
+        )
+    if "ntn_leo_satellite" in spec.blocks_selected:
+        rows.append(
+            _prov(
+                "ntn_elevation_deg",
+                round(spec.ntn_elevation_deg, 1),
+                "deg",
+                f"Satellite elevation (orbit={spec.ntn_orbit_altitude_km:.0f} km)",
+                "gpp_tr38811",
+                "Table 6.6.1-1 / 6.6.2",
+                "Sets orbital slant range, orbital Doppler, LoS probability, and band-specific clutter loss.",
             )
         )
     spec.parameter_provenance = rows
@@ -541,7 +607,17 @@ def compose_wce_spec(
     # Keep focused: validate all exist in registry
     all_selected = [b for b in all_selected if b in BLOCK_ID_TO_RUNNER]
 
+    has_ris = any(b in all_selected for b in ("passive_ris_cascade", "star_ris", "active_ris_flexible"))
+    num_ris = int(nums["num_ris_elements"]) if "num_ris_elements" in nums else (64 if has_ris else 0)
+    ris_bits = int(nums.get("ris_phase_bits", 0))
+    uav_alt = float(nums.get("uav_altitude_m", 100.0))
+    ntn_alt = float(nums.get("ntn_orbit_altitude_km", 600.0))
+    ntn_el = float(nums.get("ntn_elevation_deg", 30.0))
+
     topo_label = " + ".join(b for b in prop_blocks[:2])
+    default_tx_dbm = (
+        68.0 if "ntn_leo_satellite" in prop_blocks else (35.0 if fc_ghz < 10.0 else 30.0)
+    )
     spec = WCESpec(
         problem_name=problem_name or f"Composed_{imt_scen}_Wireless_Env",
         archetype="composed_custom",
@@ -550,14 +626,19 @@ def compose_wce_spec(
         carrier_fc_ghz=fc_ghz,
         bandwidth_hz=bw_hz,
         numerology_mu=mu,
-        tx_power_dbm=float(nums.get("tx_power_dbm", 35.0 if fc_ghz < 10.0 else 30.0)),
+        tx_power_dbm=float(nums.get("tx_power_dbm", default_tx_dbm)),
         noise_figure_db=float(nums.get("noise_figure_db", 7.0)),
         num_tx=num_tx,
         num_rx=int(nums.get("num_rx", 2)),
+        num_ris_elements=num_ris,
+        ris_phase_bits=ris_bits,
         aperture_m=aperture_m,
         min_tx_rx_distance_m=min_dist,
         max_speed_mps=max_speed,
         slot_duration_ms=slot_ms,
+        uav_altitude_m=uav_alt,
+        ntn_orbit_altitude_km=ntn_alt,
+        ntn_elevation_deg=ntn_el,
         csi_assumption=csi_assumption,
         traffic_model=traffic_model,
         topology_type=topo_label,
@@ -622,10 +703,15 @@ def update_wce_spec_with_diff(
         "noise_figure_db",
         "num_tx",
         "num_rx",
+        "num_ris_elements",
+        "ris_phase_bits",
         "aperture_m",
         "min_tx_rx_distance_m",
         "max_speed_mps",
         "slot_duration_ms",
+        "uav_altitude_m",
+        "ntn_orbit_altitude_km",
+        "ntn_elevation_deg",
         "csi_assumption",
         "traffic_model",
         "topology_type",

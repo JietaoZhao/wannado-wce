@@ -20,6 +20,7 @@ from typing import Any, Literal
 import numpy as np
 import torch
 
+from wannado.wce.core.geometry import ula_farfield_steering
 from wannado.wce.core.provenance import STANDARDS_PROVENANCE
 from wannado.wce.core.types import ParamProvenance, ProvisionResult, WCEMeta
 from wannado.wce.core.units import (
@@ -30,6 +31,7 @@ from wannado.wce.core.units import (
 )
 from wannado.wce.core.utils import complex_normal, resolve_device, set_global_seed
 from wannado.wce.standards.gpp_38901 import (
+    TR38901_K_FACTOR_DB,
     compute_los_probability_tr38901,
     compute_o2i_penetration_db,
     compute_pathloss_tr38901_db,
@@ -102,6 +104,7 @@ def provision_tr38901_uma_umi_rma(config: TR38901MacroMicroConfig | None = None,
         is_los=is_los,
         h_bs_m=cfg.h_bs_m,
         h_ut_m=cfg.h_ut_m,
+        rng=rng,
     )
     sf_db = rng.normal(0.0, sf_std_db, size=cfg.num_links)
 
@@ -119,15 +122,25 @@ def provision_tr38901_uma_umi_rma(config: TR38901MacroMicroConfig | None = None,
     large_scale_gain = db_to_linear(-total_loss_db)
     avg_snr_lin = (tx_w * large_scale_gain) / max(noise_w, 1e-30)
 
-    # Normalized small-scale MIMO matrix H_small[B, Nr, Nt] with unit mean entry power
+    # Normalized small-scale MIMO matrix H_small[B, Nr, Nt] with unit mean entry power:
+    # LoS uses rank-1 specular plane-wave array outer product a_r(theta_r) a_t^H(theta_t) (TR 38.901 Table 7.5-6 K_dB).
     h_nlos = complex_normal((cfg.num_links, cfg.num_rx, cfg.num_tx), variance=1.0, device=dev)
+    k_mu_db = TR38901_K_FACTOR_DB.get(cfg.scenario, (7.0, 4.0))[0]
     k_lin = torch.where(
         torch.from_numpy(is_los).to(dev),
-        torch.full((cfg.num_links,), float(db_to_linear(9.0 if cfg.scenario == "UMa" else 7.0)), device=dev),
+        torch.full((cfg.num_links,), float(db_to_linear(k_mu_db)), device=dev),
         torch.zeros((cfg.num_links,), device=dev),
     ).view(-1, 1, 1)
-    phase_los = torch.rand((cfg.num_links, cfg.num_rx, cfg.num_tx), device=dev) * (2.0 * math.pi)
-    h_los = torch.complex(torch.cos(phase_los), torch.sin(phase_los))
+    phi_los = torch.rand((cfg.num_links, 1, 1), device=dev) * (2.0 * math.pi)
+    aod_los = (torch.rand(cfg.num_links, device=dev) - 0.5) * (2.0 * math.pi / 3.0)
+    aoa_los = (torch.rand(cfg.num_links, device=dev) - 0.5) * math.pi
+    a_tx_los = ula_farfield_steering(cfg.num_tx, aod_los)
+    a_rx_los = ula_farfield_steering(cfg.num_rx, aoa_los)
+    h_los = (
+        math.sqrt(cfg.num_rx * cfg.num_tx)
+        * torch.complex(torch.cos(phi_los), torch.sin(phi_los))
+        * torch.einsum("bn,bm->bnm", a_rx_los, a_tx_los.conj())
+    )
     h_small = (torch.sqrt(k_lin / (k_lin + 1.0)) * h_los + torch.sqrt(1.0 / (k_lin + 1.0)) * h_nlos).to(torch.complex64)
 
     # Apply large-scale channel amplitude sqrt(large_scale_gain) cleanly separated from normalized H_small

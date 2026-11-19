@@ -19,64 +19,51 @@ Follow this **strict 5-stage Just-in-Time provisioning workflow** so every singl
 
 ---
 
-## Trigger & Mandatory Opening Choreography
-Whenever the user wants to configure or build a wireless communication environment, **NEVER ask blindly "what parameters do you want?" and NEVER pull heavy tools or guess numbers without authority!** Execute in order:
-1. **Traverse the Project First**:
+## Coding-Agent Execution Workflow (Fast Path + Rigor Gates)
+Whenever the user wants to build or verify a wireless communication environment, **do not dump generic parameter questionnaires** and **never install heavy external packages or guess channel parameters without standard provenance**:
+1. **Inspect Context First**:
    ```bash
    wannado-wce inspect . --json
    ```
-   (or `scan_project(".")` + `build_interactive_brief(...)`).
-2. **Share Your Understanding First — Never Cold-Ask**:
-   - Explicitly explain what you observed in the user's repository (`project_summary_guess`, `evidence_clues`, existing `drl_lab/` or `adv_eval/`).
-   - If `understanding_confidence == "low"`, say clearly what was seen and align naturally with the user.
-3. **Showcase the `wannado-wce` Standards, Blocks & JIT Ecosystem Arsenal**:
-   - Summarize built-in Tier 0 blocks (`wannado-wce arsenal`: 33 executable PyTorch/NumPy blocks across 6 families from classic Rayleigh/Rician/PPP & 3GPP TR 38.901/NTN/UAV/V2X through RIS/STAR-RIS/Near-Field XL-MIMO/ISAC/OTFS/HRLLC-FBL/Ambient-IoT/Semantic-AirComp/Security/CKM), 21 authoritative standards (`wannado-wce standards`), and 18 JIT external tools (`wannado-wce ecosystem`: Sionna PyTorch, Sionna RT, DeepMIMO, `quadriga-lib`, HermesPy, TorchSig, `ns-3`/`5G-LENA`/`ns3-gym`, `OpenAirInterface`, `srsRAN`, `FlexRIC`).
-4. **Pop the Mandatory Two-Step Goal Confirmation Dialog (`goal_confirmation_dialog`)**:
-   - Confirm the AI-inferred wireless scenario OR ask the user in 1 sentence what wireless research they are conducting before writing `./wce_lab/wce_spec.json` or recommending external installs.
+   (or `scan_project(".")`) to detect existing `./wce_lab/`, `./drl_lab/`, `./adv_eval/`, or Python files. If the user's request is already specific (e.g., carrier frequency, topology, antenna/RIS count, or standard), proceed directly; **ask only 1–2 concise architectural clarifying questions if genuinely ambiguous**.
+2. **Inspect Built-in Arsenal & Standards**:
+   - Use built-in **Tier 0** blocks first (`wannado-wce arsenal`: 33 executable PyTorch/NumPy blocks across 6 families, 21 standards via `wannado-wce standards`, and 18 JIT external tool recipes via `wannado-wce ecosystem`).
 
 ---
 
 ## Stage 0: 4-Slot Compositional Intake, LiveProvenance Diff & JIT Parts Plan (`wce_spec.json`)
-- Map the confirmed goal to a coupled `WCESpec` using the **4-Slot Compositional Assembler** (`wannado-wce compose "<query>"` or `compose_wce_spec()`) across:
-  1. **Propagation & Topology** (`channel_classic` / `channel_3gpp` UMa/InF/NTN/UAV/V2X)
+- Map the goal to a coupled `WCESpec` using the **4-Slot Compositional Assembler** (`wannado-wce compose "<query>"` or `compose_wce_spec()`) across:
+  1. **Propagation & Topology** (`channel_classic` / `channel_3gpp` UMa/UMi/InF/NTN/UAV/V2X)
   2. **Antenna & Metasurface** (`farfield_upa`, `nearfield_xlmimo_thz`, `passive_ris_cascade`, `star_ris`, `active_ris_flexible`)
   3. **6G PHY & Traffic Queue** (`isac_jsac_channel`, `otfs_delay_doppler`, `hrllc_fbl_urllc`, `semantic_aircomp_channel`, `pls_covert_antijamming`; `traffic_xr_immersive`, `traffic_ftp_models`, `multicell_interference_mac`)
   4. **Causality & Baselines** (`realistic_estimated` / `delayed_feedback` + `ls_lmmse_csi`, `wmmse_precoder` / `water_filling`, `proportional_fair`, `awgn_link`)
-- **Minimal Clarification Rule**: If the user's request is ambiguous (e.g., "car anti-jamming"), ask only 1–2 architectural fork questions instead of dumping 10 parameter walls upfront.
-- **LiveProvenance Diff (`wannado-wce diff-spec`)**: Whenever the user tweaks ANY parameter verbally (e.g., `"change frequency to 140 GHz"` or `"use 256 RIS elements"`), call `update_wce_spec_with_diff()` / `wannado-wce diff-spec --request "..." --save` to detect Rayleigh near-field crossings (`Z_R = 2D^2/lambda`), `TR 38.901 >100 GHz` limits, and coherence breaks (`T_c < slot`), refreshing `Table I` and citations live.
-- **Just-in-Time (JIT) Parts Decision & Verified External Adapters (`wannado-wce jit-recipe`)**:
+- **LiveProvenance Diff (`wannado-wce diff-spec`)**: Whenever the user updates any parameter (e.g., `"change frequency to 140 GHz"` or `"use 256 RIS elements"`), call `update_wce_spec_with_diff()` / `wannado-wce diff-spec --request "..." --save` to flag Rayleigh near-field crossings (`Z_R = 2D^2/lambda`), `TR 38.901 >100 GHz` bounds, and coherence breaks (`T_c < slot`), refreshing `Table I` and citations live.
+- **Just-in-Time (JIT) External Simulator Adapters (`wannado-wce jit-recipe`)**:
   - Default to built-in **Tier 0** PyTorch/NumPy standard blocks when fast/differentiable channels suffice.
-  - Only propose **Tier 1–3** pulls when genuinely needed, using `wannado-wce jit-recipe <tool_id> --verify` (`check_tool_platform_readiness` + `write_jit_adapter_bundle`) to:
-    - Check DeepMIMO scenario disk size (`check_tool_platform_readiness`) BEFORE downloading;
-    - Guard macOS/Windows users against broken native C++ `ns-3 / 5G-LENA` builds (auto-generating Docker + ZeroMQ Gym bridge);
-    - Materialize normalized `torch.complex64` adapters (`adapt_external_channel_tensor`) verified by `--self-test` & `verify_external_channel_adapter()` so pathgain separation (`E[|h|^2]=1`) and autograd pass before training.
-- Ensure **every parameter** in `wce_spec.json` carries a `ParamProvenance` linking to a specific 3GPP/ITU/ETSI/IEEE clause or canonical paper.
+  - When external simulators (`sionna_rt`, `deepmimo`, `quadriga_lib`, `ns3_5glena_ns3gym`, `hermespy`, `torchsig`) are needed, run `wannado-wce jit-recipe <tool_id> --verify` (`check_tool_platform_readiness` + `write_jit_adapter_bundle` + `verify_jit_adapter_file`). Verification explicitly distinguishes `"synthetic_contract_smoke"` (shape/power/autograd contract check when uninstalled) from `"live_runtime_probe"` (pass `--require-live` when the simulator runtime is required).
 
-## Stage 1: Non-Intrusive `./wce_lab/` Forward Pipeline (`ComposedWirelessEnv`) + Preflight
-- **Never scatter wireless boilerplate across the user's existing model/ML files.**
+## Stage 1: Isolated `./wce_lab/`, Forward `ComposedWirelessEnv`, & Link-Level PHY
+- **Never scatter wireless boilerplate across the user's existing ML or app files.**
 - Generate the isolated harness via:
   ```bash
   wannado-wce scaffold --dir ./wce_lab --query "<goal>"
   ```
-  This exposes BOTH block-level evaluation AND forward-coupled `load_composed_env()` (`ComposedWirelessEnv` running `Propagation -> RIS/NearField -> Causal CSI & 6G PHY -> Traffic Queue` per slot `env.step()`), plus `./wce_lab/adapters/` when external tools are configured.
-- Run `preflight_wce()` on every selected block and classical baseline to check NaN/Inf, seeded reproducibility, normalized channel power, and hardware speed (`ms/call`).
-- To customize a physics formula from a new paper, copy ONLY that standalone file via:
+  Exposes both block-level evaluation and `load_composed_env()` (`ComposedWirelessEnv` running `Propagation -> RIS/NearField -> Causal CSI & 6G PHY -> Traffic Queue` per `env.step()`, plus `.as_gym_env(multi_user=...)` and `.as_channel_module(stateless=True)`).
+- Run `preflight_wce()` before long sweeps, and use `evaluate_link_level_phy()` when end-to-end coded OFDM/MIMO LDPC BLER, EVM, or pilot-based channel estimation (`LS` / `LMMSE` / `Genie`) is required.
+- To customize a physics formula, eject ONLY that single file via `wannado-wce eject <block_id> --dest ./wce_lab/blocks`.
+
+## Stage 2: Standards-Anchored RF Clarifications & Runtime Budgeting
+- Call `explain_parameters()` and `estimate_runtime()` when explaining wireless choices (`f_c`, `B`, `mu`, `T_c`, Rayleigh `2D^2/lambda`, `K-factor`, traffic models, `CSI assumption`, `JSR`, `num_seeds`) or estimating wall-clock budget for `./wce_lab/outputs/`.
+
+## Stage 3: Rigor Verification Gate (`wannado-wce verify`) & 10-Check Auditor
+- Run the automated physical/statistical gate on any query, spec, or `./wce_lab/` workspace:
   ```bash
-  wannado-wce eject <block_id> --dest ./wce_lab/blocks
+  wannado-wce verify --dir ./wce_lab --seeds 0 1 2 --json
   ```
-
-## Stage 2: Zero-Jargon RF Explanations + Storage Path & ETA Confirmation
-Before heavy multi-seed runs:
-1. **Speak the user's conversation language**.
-2. Call `explain_parameters()` and `estimate_runtime()`: explain every wireless knob (`f_c`, `B`, `numerology_mu`, `T_c` coherence time, Rayleigh distance `2D^2/lambda`, `K-factor`, `FTP/Pareto/XR` traffic, `CSI assumption`, `JSR`, `num_seeds`) with an **everyday analogy + higher-vs-lower trade-off** and self-explanatory option labels.
-3. Explicitly confirm **artifact storage path** (`./wce_lab/outputs/`) and **hardware ETA** before running.
-
-## Stage 3: Multi-Seed Provisioning & Wireless Rigor Auditor
-- Execute via `evaluate_wce_suite(..., seeds=(0, 1, 2), run_audit=True)` with at least one classical analytical baseline (`awgn_link`, `wmmse_precoder`, `water_filling`, `ls_lmmse_csi`, or `proportional_fair`).
-- Surface any `RigorAuditReport` red flags in plain words (`channel_power_normalization_drift`, `snr_noise_unit_mismatch`, `genie_csi_or_future_leakage`, `doppler_coherence_violation`, `passive_ris_energy_conservation_violation`, `farfield_assumption_in_nearfield_regime`, `single_seed_survivorship_risk`).
+- Execute multi-seed suites via `evaluate_wce_suite(..., seeds=(0, 1, 2), run_audit=True)` with at least one analytical baseline (`awgn_link`, `wmmse_precoder`, `water_filling`, `ls_lmmse_csi`, or `proportional_fair`), checking all 10 `RigorAuditReport` guards (`channel_power_normalization_drift`, `snr_noise_unit_mismatch`, `genie_csi_or_future_leakage`, `doppler_coherence_violation`, `passive_ris_energy_conservation_violation`, `farfield_assumption_in_nearfield_regime`, `single_seed_survivorship_risk`, `zero_variance_deterministic_metric`, `ris_quantization_and_aperture_ok`, `table1_provenance_integrity_ok`).
 
 ## Stage 4: Provenance Markdown Report (`Table I`), LaTeX, & Zero-Hallucination BibTeX
 - **STRICT ZERO-HALLUCINATION CITATION RULE**: Never invent or web-guess citations for built-in standards, blocks, or mechanisms. Always pull verbatim BibTeX/IEEE/APA from `STANDARDS_PROVENANCE`, `MECHANISM_PROVENANCE`, `export_citations()`, or `wannado-wce cite <ids>`.
-- Call `report.save("./wce_lab/outputs")` and `build_post_run_debrief(report)`:
-  - Always highlight **`environment_provenance.md`** containing the plain-language environment summary, diagnostic plots (`wce_diagnostics.png`/`.svg`), and the complete **System Simulation Parameter Table (`Table I`)** explaining *why* every single setting was chosen and *which standard/paper* authorizes it.
-  - Also deliver `paper_params_table.tex` (`LaTeX Table I`), `paper_results_table.tex`, `references.bib`, `wce_report.json`, and `metrics.csv`.
+- Call `report.save("./wce_lab/outputs")` and highlight:
+  - **`environment_provenance.md`** (plain-language environment summary, `wce_diagnostics.png`/`.svg`, and the complete **System Simulation Parameter Table (`Table I`)** linking every parameter to its standard clause or paper),
+  - **`paper_params_table.tex`**, **`paper_results_table.tex`**, **`references.bib`**, **`wce_report.json`**, and **`metrics.csv`**.

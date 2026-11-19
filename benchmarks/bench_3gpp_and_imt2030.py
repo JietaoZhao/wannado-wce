@@ -8,13 +8,16 @@ from pathlib import Path
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("MPLBACKEND", "Agg")
 
-import matplotlib
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from wannado.wce.blocks.channel_3gpp import provision_ntn_leo_satellite, provision_tr38901_inf, provision_tr38901_uma_umi_rma
+from wannado.wce.blocks.channel_3gpp import (
+    provision_ntn_leo_satellite,
+    provision_tr38901_inf,
+    provision_tr38901_uma_umi_rma,
+)
 from wannado.wce.blocks.domain_6g import provision_hrllc_fbl_urllc
 from wannado.wce.standards.gpp_38901 import compute_pathloss_tr38901_db
 

@@ -23,7 +23,11 @@ from wannado.wce.core.provenance import MECHANISM_PROVENANCE
 from wannado.wce.core.types import ParamProvenance, ProvisionResult, WCEMeta
 from wannado.wce.core.units import db_to_linear, dbm_to_watt, linear_to_db, thermal_noise_power_watt
 from wannado.wce.core.utils import complex_normal, resolve_device, set_global_seed
-from wannado.wce.standards.gpp_extensions import AL_HOURANI_ENV_PARAMS, compute_uav_tr36777_pathloss
+from wannado.wce.standards.gpp_extensions import (
+    AL_HOURANI_ENV_PARAMS,
+    compute_uav_tr36777_los_probability,
+    compute_uav_tr36777_pathloss,
+)
 
 META = WCEMeta(
     id="uav_air_to_ground",
@@ -81,21 +85,21 @@ def provision_uav_air_to_ground(config: UAVA2GConfig | None = None, **overrides:
     elev_deg = np.degrees(np.arctan2(cfg.uav_altitude_m, r_2d))
 
     a, b, eta_los, eta_nlos = AL_HOURANI_ENV_PARAMS[cfg.env_type]
-    p_los = 1.0 / (1.0 + a * np.exp(-b * (elev_deg - a)))
-    is_los = rng.uniform(0.0, 1.0, size=cfg.num_ground_users) < p_los
-
     if cfg.model_mode == "al_hourani":
+        p_los = 1.0 / (1.0 + a * np.exp(-b * (elev_deg - a)))
+        is_los = rng.uniform(0.0, 1.0, size=cfg.num_ground_users) < p_los
         fspl_db = 20.0 * np.log10(4.0 * math.pi * (cfg.fc_ghz * 1e9) * d_3d / 2.99792458e8)
         pl_expected_db = p_los * (fspl_db + eta_los) + (1.0 - p_los) * (fspl_db + eta_nlos)
         pl_sample_db = np.where(is_los, fspl_db + eta_los, fspl_db + eta_nlos)
-        sf_std = 4.0
     else:
+        p_los = compute_uav_tr36777_los_probability(cfg.tr36777_scenario, r_2d, cfg.uav_altitude_m)
+        is_los = rng.uniform(0.0, 1.0, size=cfg.num_ground_users) < p_los
         pl_los_arr, sf_los = compute_uav_tr36777_pathloss(cfg.tr36777_scenario, r_2d, cfg.uav_altitude_m, cfg.fc_ghz, is_los=True)
         pl_nlos_arr, sf_nlos = compute_uav_tr36777_pathloss(cfg.tr36777_scenario, r_2d, cfg.uav_altitude_m, cfg.fc_ghz, is_los=False)
         pl_expected_db = p_los * pl_los_arr + (1.0 - p_los) * pl_nlos_arr
         pl_sample_db = np.where(is_los, pl_los_arr, pl_nlos_arr)
-        sf_std = 0.5 * (sf_los + sf_nlos)
-        pl_sample_db = pl_sample_db + rng.normal(0.0, sf_std, size=cfg.num_ground_users)
+        sf_std_arr = np.where(is_los, sf_los, sf_nlos)
+        pl_sample_db = pl_sample_db + rng.normal(0.0, sf_std_arr, size=cfg.num_ground_users)
 
     noise_w = thermal_noise_power_watt(cfg.bandwidth_hz, noise_figure_db=cfg.noise_figure_db)
     snr_lin = (dbm_to_watt(cfg.tx_power_dbm) * db_to_linear(-pl_sample_db)) / max(noise_w, 1e-30)

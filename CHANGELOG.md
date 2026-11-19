@@ -2,6 +2,23 @@
 
 All notable changes to `wannado-wce` will be documented in this file.
 
+## [1.2.0] - 2026-11-19
+
+### Added
+- **Phase B — Link-Level Coded OFDM-MIMO PHY & Automated `verify` Gate**:
+  - `wannado.wce.workspace.link_level_phy` (`LinkLevelPHYConfig`, `evaluate_link_level_phy`): systematic Rate-1/2 LDPC + Normalized Min-Sum BP decoding, Gray QPSK/16QAM/64QAM modulation, comb-pilot `LS`/`LMMSE`/`Genie` channel estimation, and `MMSE`/`ZF`/`MRC` equalization (`benchmarks/bench_link_level_phy.py`, `benchmarks/assets/link_level_ofdm_bler.png`).
+  - `RigorAuditor 2.0` expanded to 10 automated checks (`ris_quantization_and_aperture_ok`, `table1_provenance_integrity_ok`, `multi_seed_stochastic_variance_ok`).
+  - `wannado-wce verify` (`wannado.wce.audit.verify_gate.verify_wce_target`) providing a single deterministic CI/agent physical verification gate.
+- **Phase C — Honest JIT Probes, Multi-User Gym Control & Streamlined Agent Kit**:
+  - `jit_recipes` now distinguish `"synthetic_contract_smoke"` from `"live_runtime_probe"` and support strict `--require-live` verification via `verify_jit_adapter_file(..., require_live=...)`.
+  - `ComposedWirelessEnv.as_gym_env(..., multi_user=True)` exposes per-user wireless state (`4 * batch_size + 4`) and continuous multi-user softmax power allocation (`per_user_power_weights`).
+  - Added standalone optional ecosystem validation script `benchmarks/bench_ecosystem_interop.py` and streamlined `agent_kit` (`SKILL.md`, `AGENTS.md`, `CLAUDE.md`, Cursor rule) for direct coding-agent workflows.
+
+### Fixed
+- **Phase A — 3GPP / ITU Standards Calibration & Physical Realism**:
+  - Fixed ITU-R P.676 Van Vleck–Weisskopf `(f/f0)^2` scaling, 3GPP TR 38.901 `h_E` / K-factor / Rank-1 LoS MIMO array response, CDL/TDL `k_db` LoS ray decomposition, TR 36.777 Table B-1 UAV A2G LoS & shadow fading, and TR 38.811 S/Ka-band NTN clutter + P.676/P.618 losses.
+  - Resolved deterministic zero-variance metrics (`isac_monostatic_bistatic`), `ambient_iot_tr38848` topology asymmetry, `pls_covert_antijamming` extension hooks, `active_ris_and_flexible_antennas` physical hop gains, uncapped `ComposedWirelessEnv` TX antenna counts, 2-hop RIS cascade `H_d + H_r Phi G`, and duplicate/inflated `Table I` RIS provenance entries.
+
 ## [1.1.3] - 2026-11-17
 
 ### Changed

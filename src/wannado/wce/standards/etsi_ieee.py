@@ -67,23 +67,29 @@ def itur_p676_attenuation_db_per_km(
     pressure_hpa: float = 1013.25,
     temp_c: float = 15.0,
 ) -> np.ndarray:
-    """Compute atmospheric gaseous specific attenuation gamma(f) = gamma_d(f) + gamma_w(f) in dB/km (ITU-R P.676)."""
+    """Compute atmospheric gaseous specific attenuation gamma(f) = gamma_d(f) + gamma_w(f) in dB/km (ITU-R P.676).
+
+    Applies Van Vleck-Weisskopf (f / f0)^2 line-shape scaling to spectroscopic O2/H2O
+    resonances so sub-10 GHz tails remain < 0.02 dB/km while preserving 22.2/60/118.75/183.3 GHz peaks.
+    """
     f = np.maximum(np.asarray(fc_ghz, dtype=np.float64), 0.1)
     p_scale = float(pressure_hpa) / 1013.25
     t_scale = 288.15 / max(200.0, 273.15 + float(temp_c))
     rho_scale = max(0.0, float(water_vapor_g_m3)) / 7.5
 
-    # Dry-air continuum + O2 resonance bands
-    gamma_d = 0.0025 * p_scale * (t_scale ** 2) * np.sqrt(f / 10.0)
+    # Dry-air Debye continuum + O2 resonance bands with Van Vleck-Weisskopf (f/f0)^2 scaling
+    gamma_d = 0.0052 * p_scale * (t_scale ** 2) * (f ** 2) / ((f ** 2) + 1.0)
     for f0, peak, width in _O2_RESONANCE_GHZ:
         w = width * p_scale
-        gamma_d = gamma_d + peak * p_scale * (w ** 2) / (((f - f0) ** 2) + (w ** 2))
+        vvw = (f / f0) ** 2
+        gamma_d = gamma_d + peak * p_scale * vvw * (w ** 2) / (((f - f0) ** 2) + (w ** 2))
 
-    # Water-vapor continuum + H2O spectroscopic absorption peaks
-    gamma_w = 0.00018 * rho_scale * (f ** 1.7) * (t_scale ** 2.5) * 1e-2
+    # Water-vapor continuum + H2O spectroscopic absorption peaks with Van Vleck-Weisskopf scaling
+    gamma_w = 5.5e-5 * rho_scale * (f ** 1.85) * (t_scale ** 2.5)
     for f0, peak, width in _H2O_RESONANCE_GHZ:
         w = width * (0.6 + 0.4 * p_scale)
-        gamma_w = gamma_w + peak * rho_scale * (w ** 2) / (((f - f0) ** 2) + (w ** 2))
+        vvw = (f / f0) ** 2
+        gamma_w = gamma_w + peak * rho_scale * vvw * (w ** 2) / (((f - f0) ** 2) + (w ** 2))
 
     return np.asarray(gamma_d + gamma_w, dtype=np.float64)
 
@@ -93,10 +99,17 @@ def itur_p676_path_absorption_db(
     distance_m: float | np.ndarray,
     *,
     water_vapor_g_m3: float = 7.5,
+    elevation_deg: float | None = None,
 ) -> np.ndarray:
-    """Total atmospheric absorption loss in dB over link distance_m."""
+    """Total atmospheric absorption loss in dB over terrestrial distance_m or slant tropospheric path."""
     gamma = itur_p676_attenuation_db_per_km(fc_ghz, water_vapor_g_m3=water_vapor_g_m3)
-    return gamma * (np.asarray(distance_m, dtype=np.float64) / 1000.0)
+    dist_km = np.asarray(distance_m, dtype=np.float64) / 1000.0
+    if elevation_deg is not None and elevation_deg > 1.0:
+        # ITU-R P.676 Annex 2 equivalent tropospheric gas scale height (~6 km) along slant path
+        sin_el = max(float(np.sin(np.deg2rad(np.clip(elevation_deg, 5.0, 90.0)))), 0.087)
+        eff_km = np.minimum(dist_km, 6.0 / sin_el)
+        return np.asarray(gamma * eff_km, dtype=np.float64)
+    return np.asarray(gamma * dist_km, dtype=np.float64)
 
 
 # ITU-R P.838-3 anchor points: (f_GHz, k_H, alpha_H, k_V, alpha_V)
