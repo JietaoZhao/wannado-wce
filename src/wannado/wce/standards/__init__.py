@@ -1,5 +1,10 @@
 """Authoritative ITU-R, 3GPP, ETSI, IEEE standards tables and open-source wireless ecosystem registry."""
 
+from wannado.wce.standards.calibration_3gpp import (
+    CalibrationCheckResult,
+    CalibrationSuiteReport,
+    run_3gpp_calibration_suite,
+)
 from wannado.wce.standards.ecosystem import (
     ECOSYSTEM_REGISTRY,
     EcosystemTool,
@@ -23,6 +28,14 @@ from wannado.wce.standards.gpp_38901 import (
     compute_los_probability_tr38901,
     compute_o2i_penetration_db,
     compute_pathloss_tr38901_db,
+)
+from wannado.wce.standards.gpp_38901_3d import (
+    CDL_3D_PARAMS,
+    TR38901_DECORR_DIST_M,
+    SpatialConsistencyField,
+    generate_tr38901_3d_dualpol_channel,
+    tr38901_antenna_pattern_db,
+    tr38901_dualpol_field_components,
 )
 from wannado.wce.standards.gpp_extensions import (
     AL_HOURANI_ENV_PARAMS,
@@ -52,6 +65,7 @@ from wannado.wce.standards.jit_recipes import (
 
 __all__ = [
     "AL_HOURANI_ENV_PARAMS",
+    "CDL_3D_PARAMS",
     "CDL_PROFILES",
     "DEEPMIMO_SCENARIO_CATALOG",
     "ECOSYSTEM_REGISTRY",
@@ -63,12 +77,16 @@ __all__ = [
     "NTN_ELEVATION_TABLE",
     "O2I_MATERIAL_COEFFS",
     "TDL_PROFILES",
+    "TR38901_DECORR_DIST_M",
     "VOIP_TRAFFIC_SPEC",
     "XR_TRAFFIC_SPEC",
+    "CalibrationCheckResult",
+    "CalibrationSuiteReport",
     "EcosystemTool",
     "IMT2030ScenarioSpec",
     "JITAdapterRecipe",
     "Scenario38901",
+    "SpatialConsistencyField",
     "check_tool_platform_readiness",
     "compute_los_probability_tr38901",
     "compute_o2i_penetration_db",
@@ -76,6 +94,7 @@ __all__ = [
     "compute_uav_tr36777_pathloss",
     "compute_v2x_tr37885_pathloss",
     "format_ecosystem_table",
+    "generate_tr38901_3d_dualpol_channel",
     "get_jit_recipe",
     "get_nr_numerology",
     "interpolate_ntn_params",
@@ -86,6 +105,9 @@ __all__ = [
     "probe_local_ecosystem",
     "recommend_ecosystem_tools",
     "render_jit_adapter_code",
+    "run_3gpp_calibration_suite",
+    "tr38901_antenna_pattern_db",
+    "tr38901_dualpol_field_components",
     "verify_jit_adapter_file",
     "write_jit_adapter_bundle",
 ]

@@ -35,6 +35,10 @@ class WCEVerifyReport:
     rigor_reports: dict[str, dict[str, Any]] = field(default_factory=dict)
     composed_rigor: dict[str, Any] | None = None
     phy_validation: dict[str, Any] | None = None
+    calibration_report: dict[str, Any] | None = None
+    harq_amc: dict[str, Any] | None = None
+    regression_comparison: dict[str, Any] | None = None
+    dossier_path: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -86,8 +90,15 @@ def verify_wce_target(
     with_phy_check: bool = True,
     phy_snr_db: float = 12.0,
     strict_warnings: bool = False,
+    run_3gpp_calibration: bool = False,
+    run_harq_amc: bool = False,
+    baseline_report_path: str | Path | None = None,
+    max_se_drop_pct: float = 5.0,
+    max_bler_increase: float = 0.03,
+    emit_dossier_dir: str | Path | None = None,
+    signing_key: str | None = None,
 ) -> WCEVerifyReport:
-    """Execute end-to-end Stage 0 -> Preflight -> Rigor 2.0 -> Link-Level PHY verification gate."""
+    """Execute end-to-end Stage 0 -> Preflight -> Rigor 2.0 -> Link-Level PHY -> Calibration/HARQ/Dossier gate."""
     from wannado.wce.reporter.env_reporter import build_block_config
 
     seeds_t = tuple(int(s) for s in seeds)
@@ -260,8 +271,54 @@ def verify_wce_target(
     if strict_warnings and warnings:
         red_flags.append("strict_warnings_triggered")
 
+    cal_dict: dict[str, Any] | None = None
+    if run_3gpp_calibration:
+        from wannado.wce.standards.calibration_3gpp import run_3gpp_calibration_suite
+
+        cal_rep = run_3gpp_calibration_suite(seed=seeds_t[0])
+        cal_dict = cal_rep.to_dict()
+        checks["calibration_3gpp_ok"] = cal_rep.passed
+        if not cal_rep.passed:
+            red_flags.extend(f"cal_3gpp_fail:{c.check_id}" for c in cal_rep.checks if not c.passed)
+
+    harq_dict: dict[str, Any] | None = None
+    if run_harq_amc and phy_source is not None:
+        from wannado.wce.phy.nr_coding_and_amc import evaluate_harq_amc_link
+
+        harq_res = evaluate_harq_amc_link(
+            phy_source,
+            snr_db=phy_snr_db,
+            num_blocks=16,
+            seed=seeds_t[0],
+        )
+        harq_dict = harq_res.to_dict()
+        harq_ok = (0.0 <= harq_res.residual_bler <= 1.0) and (harq_res.residual_bler <= harq_res.initial_bler + 1e-6)
+        checks["harq_amc_ok"] = harq_ok
+        if not harq_ok:
+            red_flags.append("harq_amc_combining_anomaly")
+
+    reg_dict: dict[str, Any] | None = None
+    if baseline_report_path is not None:
+        from wannado.wce.reporter.dossier import compare_wce_verdicts
+
+        prelim_payload = {
+            "rigor_reports": rigor_reports_dict,
+            "composed_rigor": composed_rigor_dict,
+            "phy_validation": phy_dict,
+            "harq_amc": harq_dict,
+        }
+        reg_dict = compare_wce_verdicts(
+            baseline_report_path,
+            prelim_payload,
+            max_se_drop_pct=max_se_drop_pct,
+            max_bler_increase=max_bler_increase,
+        )
+        checks["regression_gate_ok"] = bool(reg_dict["passed"])
+        if not reg_dict["passed"]:
+            red_flags.extend(reg_dict["regressions"])
+
     passed = all(checks.values()) and len(red_flags) == 0
-    return WCEVerifyReport(
+    report = WCEVerifyReport(
         passed=passed,
         exit_code=0 if passed else 1,
         target_mode=target_mode,
@@ -274,7 +331,24 @@ def verify_wce_target(
         rigor_reports=rigor_reports_dict,
         composed_rigor=composed_rigor_dict,
         phy_validation=phy_dict,
+        calibration_report=cal_dict,
+        harq_amc=harq_dict,
+        regression_comparison=reg_dict,
     )
+    if emit_dossier_dir is not None:
+        from wannado.wce.reporter.dossier import build_wce_dossier
+
+        dossier = build_wce_dossier(
+            report,
+            wce_spec=spec_obj,
+            calibration_report=cal_dict,
+            harq_result=harq_dict,
+            regression_comparison=reg_dict,
+            signing_key=signing_key,
+        )
+        saved = dossier.save(emit_dossier_dir)
+        report.dossier_path = str(saved["json"])
+    return report
 
 
 __all__ = ["WCEVerifyReport", "verify_wce_target"]

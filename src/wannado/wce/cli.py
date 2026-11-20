@@ -142,7 +142,19 @@ def _build_parser() -> argparse.ArgumentParser:
     p_ver.add_argument("--phy-snr-db", type=float, default=12.0, help="SNR (dB) for Link-Level OFDM-MIMO PHY smoke check.")
     p_ver.add_argument("--no-phy-check", action="store_true", help="Skip Link-Level OFDM-MIMO PHY smoke test.")
     p_ver.add_argument("--strict-warnings", action="store_true", help="Fail gate on any Stage 0/1 advisory warning.")
+    p_ver.add_argument("--calibrate-3gpp", action="store_true", help="Run 7-check 3GPP/ITU reference calibration suite.")
+    p_ver.add_argument("--harq-amc", action="store_true", help="Run 2D-DMRS QC-LDPC AMC+HARQ closed-loop check.")
+    p_ver.add_argument("--baseline", default=None, dest="baseline_path", help="Baseline verify JSON for PR regression check.")
+    p_ver.add_argument("--max-se-drop-pct", type=float, default=5.0, help="Max allowed SE regression pct vs baseline.")
+    p_ver.add_argument("--max-bler-increase", type=float, default=0.03, help="Max allowed BLER increase vs baseline.")
+    p_ver.add_argument("--out-dir", default=None, dest="out_dir", help="Emit cryptographically sealed WCE dossier.")
+    p_ver.add_argument("--signing-key", default=None, dest="signing_key", help="Optional HMAC-SHA256 dossier signing key.")
     p_ver.add_argument("--json", action="store_true", dest="as_json")
+
+    p_cal = sub.add_parser("calibrate", help="Run 3GPP TR 38.901 / TR 38.811 / ITU-R P.676 quantitative calibration suite.")
+    p_cal.add_argument("--num-links", type=int, default=512)
+    p_cal.add_argument("--seed", type=int, default=42)
+    p_cal.add_argument("--json", action="store_true", dest="as_json")
 
     p_init = sub.add_parser("init-agent", help="Install universal AGENTS.md / Agent Skills rules + IDE adapters.")
     p_init.add_argument("--dir", default=".", dest="project_dir")
@@ -397,9 +409,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             with_phy_check=not args.no_phy_check,
             phy_snr_db=args.phy_snr_db,
             strict_warnings=args.strict_warnings,
+            run_3gpp_calibration=args.calibrate_3gpp,
+            run_harq_amc=args.harq_amc,
+            baseline_report_path=args.baseline_path,
+            max_se_drop_pct=args.max_se_drop_pct,
+            max_bler_increase=args.max_bler_increase,
+            emit_dossier_dir=args.out_dir,
+            signing_key=args.signing_key,
         )
         print(json.dumps(rep.to_dict(), indent=2, ensure_ascii=False) if args.as_json else rep.format_report())
         return rep.exit_code
+
+    if args.command == "calibrate":
+        from wannado.wce.standards.calibration_3gpp import run_3gpp_calibration_suite
+
+        cal = run_3gpp_calibration_suite(seed=args.seed, num_links=args.num_links)
+        print(json.dumps(cal.to_dict(), indent=2, ensure_ascii=False) if args.as_json else cal.format_report())
+        return 0 if cal.passed else 1
 
     if args.command == "init-agent":
         written = install_agent_kit(project_dir=args.project_dir, ide=args.ide)

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wannado-wce"
-version = "1.2.1"
-description = "WannaDo Series: Standards-anchored, Just-in-Time wireless communication environment quick provisioning across ITU IMT-2030 (6G), 3GPP NR/NTN/V2X/ISAC, RIS/XL-MIMO, traffic/MAC queues, and open-source wireless ecosystems."
+version = "1.3.0"
+description = "WannaDo Series: Standards-anchored, PyTorch-differentiable wireless communication environment provisioning across ITU IMT-2030 (6G), 3GPP NR/NTN/V2X/ISAC, 3D dual-pol CDL & spatial consistency, RF impairments + SigMF IQ interop, QC-LDPC 256QAM HARQ/AMC, O-RAN E2SM-KPM v3, and 3GPP calibration dossiers."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"

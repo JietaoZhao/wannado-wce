@@ -2,6 +2,23 @@
 
 All notable changes to `wannado-wce` will be documented in this file.
 
+## [1.3.0] - 2026-11-20
+
+### Added
+- **Differentiable RF Front-End Impairments & SigMF Real-World IQ Interop (`wannado.wce.rf`)**:
+  - `RFImpairmentConfig` & `RFImpairmentChain` supporting autograd-safe Rapp SSPA PA AM/AM + Saleh AM/PM (`apply_rapp_pa`), Wiener + white oscillator phase noise (`apply_phase_noise`), deterministic CFO (`apply_cfo`), power-preserving IQ gain/phase mismatch (`apply_iq_imbalance`), and Straight-Through Estimator (STE) uniform ADC quantization (`apply_adc_quantization`), plus `measure_papr_db`, `measure_aclr_db`, and `RFImpairmentChain.measure_distortion`.
+  - Integrated optional `rf_impairments` directly into `ChannelModuleAdapter`, `LinkLevelPHYConfig`, `ComposedWirelessEnv`, and `DifferentiableWirelessLink`.
+  - `write_sigmf_recording`, `read_sigmf_recording` (SigMF v1.x `.sigmf-meta` + `.sigmf-data` supporting `cf32_le`, `cf64_le`, `ci16_le` with mandatory SHA-512 verification), and `compare_iq_psd_and_stats` for Sim-to-Real PSD/PAPR/amplitude validation.
+- **3GPP-Style Vectorized QC-LDPC, 256QAM, 2D-DMRS, TS 38.214 AMC/HARQ & End-to-End Differentiable Wireless Link (`wannado.wce.phy`, `link_level_phy.py`)**:
+  - Added `QCLDPCCodec` (girth >= 6 quasi-cyclic lifted mother code `R=1/3` with vectorized PyTorch edge-index Normalized Min-Sum BP decoder and multi-rate puncturing/Incremental Redundancy RV0..RV3).
+  - Added `256QAM` constellation/link support in `link_level_phy.py` plus full 2D `(Nsc, 14)` OFDM slot simulation with 2D-DMRS pilot interpolation, `NR_MCS_TABLE_256QAM`, `select_nr_mcs_from_sinr`, and `evaluate_harq_amc_link` (Chase Combining & Incremental Redundancy).
+  - Added `DifferentiableSoftMapperDemapper` (optional learnable geometric constellation shaping + Log-MAP LLR demapper), `DifferentiableRISChannel`, `DifferentiableWirelessLink`, and `compute_bit_metric_rate` for pure-PyTorch end-to-end joint backpropagation through TX/Precoder/RF/RIS/Neural Equalizer.
+- **3GPP TR 38.901 3D Dual-Pol Panels, Spatial Consistency & True MU-MIMO Interference (`standards/gpp_38901_3d.py`, `composed_env.py`)**:
+  - `tr38901_antenna_pattern_db` (exact Table 7.3-1 directional gain), `tr38901_dualpol_field_components`, `generate_tr38901_3d_dualpol_channel` (±45° dual-pol + Table 7.7.1 ZOD/ZOA & XPR), and `SpatialConsistencyField` (exponential Gauss-Markov spatial shadow-fading consistency).
+  - Added opt-in `enable_mu_mimo_interference=True` (causal Regularized Zero-Forcing precoding + inter-user spatial interference denominator + Jain's fairness) and `enable_spatial_consistency=True` to `ComposedWirelessEnv`.
+- **3GPP Calibration Suite, O-RAN E2SM-KPM v3 Telemetry & Sealed CI Dossiers (`calibration_3gpp.py`, `oran_kpm.py`, `reporter/dossier.py`, `verify_gate.py`, `cli.py`)**:
+  - Added 7-check `run_3gpp_calibration_suite` (`wannado-wce calibrate`), `ORANKPMTelemetryAdapter` (`E2SM-KPM-v03.00` JSON/JSONL telemetry + E2SM-RC control actions), `WCEVerificationDossier` (`build_wce_dossier` SHA-256 + HMAC-SHA256 seal & `verify_wce_dossier_integrity`), and `compare_wce_verdicts` PR regression gate wired into `wannado-wce verify`.
+
 ## [1.2.1] - 2026-11-19
 
 ### Fixed

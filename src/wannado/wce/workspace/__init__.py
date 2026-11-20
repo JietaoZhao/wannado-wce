@@ -23,6 +23,7 @@ from wannado.wce.workspace.link_level_phy import (
     ldpc_encode,
     sweep_link_level_bler,
 )
+from wannado.wce.workspace.oran_kpm import ORANKPMIndication, ORANKPMTelemetryAdapter
 
 __all__ = [
     "AutonomousLinkDelayModel",
@@ -33,6 +34,8 @@ __all__ = [
     "LinkDeliveryResult",
     "LinkLevelPHYConfig",
     "LinkLevelPHYResult",
+    "ORANKPMIndication",
+    "ORANKPMTelemetryAdapter",
     "WirelessEnvInterface",
     "build_qam_constellation",
     "eject_block",

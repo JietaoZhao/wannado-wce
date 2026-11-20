@@ -48,18 +48,19 @@ Whenever the user wants to build or verify a wireless communication environment,
   ```bash
   wannado-wce scaffold --dir ./wce_lab --query "<goal>"
   ```
-  Exposes both block-level evaluation and `load_composed_env()` (`ComposedWirelessEnv` running `Propagation -> RIS/NearField -> Causal CSI & 6G PHY -> Traffic Queue` per `env.step()`, plus `.as_gym_env(multi_user=...)` and `.as_channel_module(stateless=True)`).
-- Run `preflight_wce()` before long sweeps, and use `evaluate_link_level_phy()` when end-to-end coded OFDM/MIMO LDPC BLER, EVM, or pilot-based channel estimation (`LS` / `LMMSE` / `Genie`) is required.
+  Exposes both block-level evaluation and `load_composed_env()` (`ComposedWirelessEnv` running `Propagation -> RIS/NearField -> Causal CSI & 6G PHY -> Traffic Queue` per `env.step()`, supporting optional `enable_mu_mimo_interference=True`, `enable_spatial_consistency=True`, `.as_gym_env(multi_user=...)`, and `.as_channel_module(stateless=True, rf_impairments=...)`), plus `ORANKPMTelemetryAdapter` (O-RAN E2SM-KPM v3.0) and `SigMF` real-world IQ interop.
+- Run `preflight_wce()` before long sweeps; use `evaluate_link_level_phy()` (up to `256QAM`) or `evaluate_harq_amc_link()` (2D-DMRS + vectorized QC-LDPC + Chase/IR HARQ) for link-level coded PHY; and use `DifferentiableWirelessLink` + `DifferentiableRISChannel` + `RFImpairmentChain` for end-to-end PyTorch gradient optimization.
 - To customize a physics formula, eject ONLY that single file via `wannado-wce eject <block_id> --dest ./wce_lab/blocks`.
 
 ## Stage 2: Standards-Anchored RF Clarifications & Runtime Budgeting
 - Call `explain_parameters()` and `estimate_runtime()` when explaining wireless choices (`f_c`, `B`, `mu`, `T_c`, Rayleigh `2D^2/lambda`, `K-factor`, traffic models, `CSI assumption`, `JSR`, `num_seeds`) or estimating wall-clock budget for `./wce_lab/outputs/`.
 
-## Stage 3: Rigor Verification Gate (`wannado-wce verify`) & 10-Check Auditor
+## Stage 3: Rigor Verification Gate (`wannado-wce verify`), 3GPP Calibration & Sealed Dossiers
 - Run the automated physical/statistical gate on any query, spec, or `./wce_lab/` workspace:
   ```bash
-  wannado-wce verify --dir ./wce_lab --seeds 0 1 2 --json
+  wannado-wce verify --dir ./wce_lab --seeds 0 1 2 --calibrate-3gpp --harq-amc --out-dir ./wce_lab/dossier --json
   ```
+  Run `wannado-wce calibrate --json` anytime to verify 3GPP/ITU reference alignment (`run_3gpp_calibration_suite`) and pass `--baseline` for CI PR regression gating (`compare_wce_verdicts`).
 - Execute multi-seed suites via `evaluate_wce_suite(..., seeds=(0, 1, 2), run_audit=True)` with at least one analytical baseline (`awgn_link`, `wmmse_precoder`, `water_filling`, `ls_lmmse_csi`, or `proportional_fair`), checking all 10 `RigorAuditReport` guards (`channel_power_normalization_drift`, `snr_noise_unit_mismatch`, `genie_csi_or_future_leakage`, `doppler_coherence_violation`, `passive_ris_energy_conservation_violation`, `farfield_assumption_in_nearfield_regime`, `single_seed_survivorship_risk`, `zero_variance_deterministic_metric`, `ris_quantization_and_aperture_ok`, `table1_provenance_integrity_ok`).
 
 ## Stage 4: Provenance Markdown Report (`Table I`), LaTeX, & Zero-Hallucination BibTeX

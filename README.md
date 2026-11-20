@@ -6,7 +6,7 @@
 
 **Standards-Anchored, Just-in-Time (JIT) Wireless Communication Environment Quick Provisioning for 5G-Advanced, 6G / IMT-2030, ISAC, RIS, Near-Field XL-MIMO, NTN, UAV, V2X, and AI-Native Networks**
 
-[![Version](https://img.shields.io/badge/version-1.2.1-2563eb)](https://github.com/JietaoZhao/wannado-wce/blob/main/pyproject.toml)
+[![Version](https://img.shields.io/badge/version-1.3.0-2563eb)](https://github.com/JietaoZhao/wannado-wce/blob/main/pyproject.toml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-0f766e)](https://github.com/JietaoZhao/wannado-wce/blob/main/pyproject.toml)
 [![Standards](https://img.shields.io/badge/standards-21%20ITU%2F3GPP%2FETSI%2FIEEE-7c3aed)](#1-authoritative-standards--scenario-matrix-21-standards--6-imt-2030-scenarios)
 [![Blocks](https://img.shields.io/badge/executable%20blocks-33%20single--file-059669)](#2-the-33-block-single-file-arsenal-classic--2025-frontier)
@@ -20,8 +20,8 @@
 2. **Anchors Every Knob to Authority**: Maps **every physical setting** (pathloss, LoS probability, NR numerology, O2I loss, antenna spacing, Doppler, traffic queue, clutter/RCS) to **21 codified ITU-R / 3GPP / ETSI / IEEE standards** and canonical papers.
 3. **Executes Just-in-Time (JIT) Assembly**: Uses fast built-in PyTorch/NumPy **Tier 0** kernels immediately, while recommending and scripting exact pull commands for **18 external simulators/libraries** (Sionna RT, DeepMIMO, QuaDRiGa, ns-3/5G-LENA, OpenAirInterface, srsRAN, FlexRIC, pyAerial, HermesPy, TorchSig) **only after** checking your OS/GPU/disk compatibility and confirming with you.
 4. **Audits 10 Physical, Statistical & Provenance Traps (`RigorAuditor 2.0` + `wannado-wce verify`)**: Automatically flags channel power drift, dB/linear noise bugs, future CSI leakage, Doppler coherence violations, passive RIS `|phi_m| > 1`, far-field misuse inside the Rayleigh distance `Z_R = 2D^2/lambda`, missing classical baselines, zero-variance deterministic stubs, coarse RIS quantization / aperture mismatches, and incomplete `Table I` provenance.
-5. **Link-Level Coded OFDM-MIMO PHY (`evaluate_link_level_phy`)**: Includes girth-6 systematic Rate-1/2 (`K=64, N=128`) dual-diagonal LDPC + Normalized Min-Sum BP decoding (fast pure-PyTorch smoke/waterfall engine distinct from full 3GPP TS 38.212 BG1/BG2 codes), exact Gray QPSK/16QAM/64QAM, comb-pilot `LS`/Wiener-`LMMSE`/`Genie` channel estimation, wideband eigenbeamforming + `MMSE`/`ZF`/`MRC` equalization, and optional cyclic-prefix time-domain ISI simulation over WCE channels.
-6. **Exports Camera-Ready Provenance (`Table I`)**: Generates `environment_provenance.md` (with complete per-parameter **`Table I`** rationale), `paper_params_table.tex` (`booktabs` LaTeX), `paper_results_table.tex`, verified zero-hallucination `references.bib`, `wce_report.json`, and multi-seed CDF/IQM plots.
+5. **PyTorch-Native Differentiable PHY, RF Impairments, SigMF & 3GPP QC-LDPC (`phy/`, `rf/`, `evaluate_link_level_phy`, `evaluate_harq_amc_link`)**: Includes vectorized PyTorch Quasi-Cyclic LDPC + Normalized Min-Sum BP across TS 38.214 `QPSK`/`16QAM`/`64QAM`/`256QAM` + **HARQ Chase & Incremental Redundancy (IR)** + 2D-DMRS slot interpolation, **end-to-end differentiable BICM transceiver (`DifferentiableWirelessLink` + `DifferentiableRISChannel` + Log-MAP LLR demapper)**, differentiable **RF front-end impairments** (`RFImpairmentChain`: Rapp PA AM/AM-AM/PM, Wiener phase noise, CFO, IQ imbalance, STE ADC), and **SigMF v1.x** `.sigmf-meta`/`.sigmf-data` capture interop with SHA-512 verification.
+6. **3D Dual-Pol TR 38.901, MU-MIMO Interference, O-RAN E2SM-KPM v3 & Calibrated Evidence Dossiers**: Supports Table 7.3-1 3D ±45° dual-polarized CDL channels (`generate_tr38901_3d_dualpol_channel`), `SpatialConsistencyField`, causal RZF MU-MIMO spatial interference (`enable_mu_mimo_interference=True`), 7-check **3GPP/ITU Calibration Suite** (`wannado-wce calibrate`), standardized **O-RAN E2SM-KPM v3.0** streaming (`ORANKPMTelemetryAdapter`), cryptographically sealed dossiers (`build_wce_dossier`), PR regression gating, plus `environment_provenance.md` (`Table I`), `booktabs` LaTeX, and zero-hallucination `references.bib`.
 
 ---
 
@@ -44,8 +44,9 @@ python3 ./wce_lab/run_provision.py --seeds 0 1 2
 # Live parameter tuning with automatic Rayleigh near-field / >100 GHz boundary alerts & Table I diff:
 wannado-wce diff-spec --spec ./wce_lab/wce_spec.json --request "Switch carrier frequency to 140 GHz" --save
 
-# Run the 10-check automated verification gate (Physics, RigorAuditor 2.0, multi-seed + link-level PHY):
-wannado-wce verify --query "64-element passive RIS MIMO at 28 GHz" --seeds 0 1 2
+# Run the automated verification gate (Physics, RigorAuditor 2.0, multi-seed + link PHY + 3GPP calibration + HARQ + sealed dossier):
+wannado-wce verify --query "64-element passive RIS MIMO at 28 GHz" --seeds 0 1 2 --calibrate-3gpp --harq-amc --out-dir ./wce_lab/dossier
+wannado-wce calibrate --json
 
 # Check OS/Docker/disk & run contract smoke (`--require-live` when simulator deps are installed):
 wannado-wce jit-recipe sionna_rt --write-dir ./wce_lab/adapters --verify

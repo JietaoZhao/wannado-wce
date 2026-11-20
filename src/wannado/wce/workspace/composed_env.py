@@ -28,6 +28,7 @@ from wannado.wce.core.units import (
 from wannado.wce.intake.spec import WCESpec
 from wannado.wce.standards.etsi_ieee import itur_p618_rain_attenuation_db, itur_p676_path_absorption_db
 from wannado.wce.standards.gpp_38901 import compute_los_probability_tr38901, compute_pathloss_tr38901_db
+from wannado.wce.standards.gpp_38901_3d import SpatialConsistencyField
 from wannado.wce.standards.gpp_extensions import (
     compute_uav_tr36777_los_probability,
     compute_uav_tr36777_pathloss,
@@ -104,11 +105,17 @@ class ComposedWirelessEnv:
         batch_size: int = 32,
         seed: int = 42,
         rain_rate_mm_hr: float = 0.0,
+        enable_mu_mimo_interference: bool = False,
+        enable_spatial_consistency: bool = False,
+        rf_impairments: Any = None,
     ) -> None:
         self.spec = spec
         self.batch_size = max(1, int(batch_size))
         self.seed = int(seed)
         self.rain_rate_mm_hr = max(0.0, float(rain_rate_mm_hr))
+        self.enable_mu_mimo_interference = bool(enable_mu_mimo_interference)
+        self.enable_spatial_consistency = bool(enable_spatial_consistency)
+        self.rf_impairments = rf_impairments
         self._rng = np.random.default_rng(self.seed)
         self._blocks = set(spec.blocks_selected)
 
@@ -157,6 +164,12 @@ class ComposedWirelessEnv:
         self._last_eff_snr_lin: np.ndarray | None = None
         self._last_se: np.ndarray | None = None
         self._effective_tx_gain_boost = 1.0
+        self._coords_2d = np.zeros((self.batch_size, 2), dtype=np.float64)
+        self._spatial_field = (
+            SpatialConsistencyField(scenario=self._infer_38901_scenario(), seed=self.seed + 71)
+            if self.enable_spatial_consistency
+            else None
+        )
         self._init_topology()
 
     def _infer_38901_scenario(self) -> str:
@@ -303,8 +316,11 @@ class ComposedWirelessEnv:
                 elevation_deg=elev_for_atm,
             )
 
-        if redraw_shadow:
-            self._shadow_db = self._rng.normal(0.0, sf_db, size=self.batch_size)
+        if redraw_shadow or (self._spatial_field is not None and explicit_distance_override):
+            if self._spatial_field is not None:
+                self._shadow_db = self._spatial_field.step_positions(self._coords_2d, std=sf_db)
+            else:
+                self._shadow_db = self._rng.normal(0.0, sf_db, size=self.batch_size)
         self._pathloss_db = np.asarray(pl_db, dtype=np.float64) + self._shadow_db
         return np.asarray(db_to_linear(-self._pathloss_db), dtype=np.float64)
 
@@ -338,6 +354,10 @@ class ComposedWirelessEnv:
             d_min = max(self.spec.min_tx_rx_distance_m, 2.0)
             d_max = max(d_min + 20.0, 250.0)
             self._dists_2d = self._rng.uniform(d_min, d_max, size=self.batch_size)
+        angles_init = self._rng.uniform(0.0, 2.0 * math.pi, size=self.batch_size)
+        self._coords_2d = np.column_stack(
+            [self._dists_2d * np.cos(angles_init), self._dists_2d * np.sin(angles_init)]
+        )
         self._altitudes_m = np.full(self.batch_size, float(self.spec.uav_altitude_m), dtype=np.float64)
         self._large_scale_gain = self._compute_large_scale_from_distances(
             self._dists_2d, altitudes_m=self._altitudes_m, redraw_shadow=True
@@ -377,6 +397,8 @@ class ComposedWirelessEnv:
         self._total_arrivals = 0
         self._on_time_arrivals = 0
         self._history.clear()
+        if self._spatial_field is not None:
+            self._spatial_field.reset(seed=self.seed + 71)
         self._init_topology()
         return self.step()
 
@@ -454,6 +476,7 @@ class ComposedWirelessEnv:
             d_horiz = np.hypot(diff_3d[:, 0], diff_3d[:, 1])
             d_3d = np.linalg.norm(diff_3d, axis=-1)
             self._dists_2d = np.maximum(d_horiz, np.maximum(d_3d * 0.25, 1.0))
+            self._coords_2d = diff_3d[:, :2].copy()
             altitudes_override = np.maximum(np.abs(diff_3d[:, 2]), 1.5)
             self._altitudes_m = altitudes_override
             topology_updated = True
@@ -461,6 +484,8 @@ class ComposedWirelessEnv:
         elif distances_m is not None:
             d_arr = np.broadcast_to(np.asarray(distances_m, dtype=np.float64), (self.batch_size,))
             self._dists_2d = np.maximum(d_arr, 1.0)
+            cur_ang = np.arctan2(self._coords_2d[:, 1], self._coords_2d[:, 0])
+            self._coords_2d = np.column_stack([self._dists_2d * np.cos(cur_ang), self._dists_2d * np.sin(cur_ang)])
             topology_updated = True
             explicit_dist = True
 
@@ -609,25 +634,55 @@ class ComposedWirelessEnv:
             h_eff_est = h_csi_d
 
         # Layer 3b: Real Matrix Precoding & Combining driven by Causal CSI (h_eff_est), evaluated on h_eff_true!
-        # SVD top right-singular precoder (with MRT/eigenbeamforming across Nt antennas & MRC across Nr antennas)
-        if self._n_tx > 1:
-            # Estimate dominant eigenmode beamformer v_tx from H_eff_est (no future/oracle leakage)
-            gram_est = np.einsum("bnk,bnl->bkl", np.conj(h_eff_est), h_eff_est)  # (B, Nt, Nt)
-            # 3 iterations of normalized power iteration on estimated Gram matrix -> fast exact top eigenmode
-            v = h_eff_est[:, 0, :].conj()  # (B, Nt)
-            v_norm = np.linalg.norm(v, axis=-1, keepdims=True)
-            v = np.where(v_norm > 1e-9, v / np.maximum(v_norm, 1e-9), 1.0 / math.sqrt(self._n_tx))
-            for _ in range(3):
-                v = np.einsum("bkl,bl->bk", gram_est, v)
-                vn = np.linalg.norm(v, axis=-1, keepdims=True)
-                v = np.where(vn > 1e-9, v / np.maximum(vn, 1e-9), 1.0 / math.sqrt(self._n_tx))
-            # Received beamformed signal y = H_eff_true @ v  -> shape (B, Nr), SNR gain ~ ||H_eff_true @ v||^2
-            bf_vec = np.einsum("bnk,bk->bn", h_eff_true, v)  # (B, Nr)
-            eff_channel_gain = np.sum(np.abs(bf_vec) ** 2, axis=-1)
-        else:
-            eff_channel_gain = np.sum(np.abs(h_eff_true[:, :, 0]) ** 2, axis=-1)
+        mui_rx_w = np.zeros(self.batch_size, dtype=np.float64)
+        mu_mimo_active = bool(self.enable_mu_mimo_interference and self.batch_size >= 2)
+        if mu_mimo_active:
+            # Multi-User Regularized Zero-Forcing (RZF) precoding across co-scheduled UEs in the batch
+            if self._n_rx > 1:
+                u_rx = h_eff_est[:, :, 0]
+                u_norm = np.linalg.norm(u_rx, axis=-1, keepdims=True)
+                u_rx = np.where(u_norm > 1e-9, u_rx / np.maximum(u_norm, 1e-9), 1.0 / math.sqrt(self._n_rx))
+                h_mu_est = np.einsum("bn,bnk->bk", np.conj(u_rx), h_eff_est)  # (K, Nt)
+                h_mu_true = np.einsum("bn,bnk->bk", np.conj(u_rx), h_eff_true)  # (K, Nt)
+            else:
+                h_mu_est = h_eff_est[:, 0, :]
+                h_mu_true = h_eff_true[:, 0, :]
 
-        raw_rx_w = (self.tx_w * act_power_mult * user_pow_weights) * self._large_scale_gain * eff_channel_gain
+            if self._n_tx > 1:
+                reg_alpha = float(self.batch_size) / max(float(np.median(nominal_snr_est)), 0.1)
+                gram_mu = np.conj(h_mu_est).T @ h_mu_est + reg_alpha * np.eye(self._n_tx, dtype=np.complex64)
+                w_rzf = np.linalg.solve(gram_mu, np.conj(h_mu_est).T)  # (Nt, K)
+                col_norms = np.linalg.norm(w_rzf, axis=0, keepdims=True)
+                w_mat = w_rzf / np.maximum(col_norms, 1e-9)
+            else:
+                w_mat = np.ones((1, self.batch_size), dtype=np.complex64)
+
+            p_user = (self.tx_w * act_power_mult / float(self.batch_size)) * user_pow_weights  # (K,)
+            coupling_sq = np.abs(h_mu_true @ w_mat) ** 2  # (K, K): row k = UE k, col j = beam j
+            desired_gain = np.diag(coupling_sq)
+            raw_rx_w = p_user * self._large_scale_gain * desired_gain
+            # True inter-user co-channel spatial interference from all j != k
+            total_coupled = coupling_sq @ p_user
+            interf_gain_w = np.maximum(total_coupled - p_user * desired_gain, 0.0)
+            mui_rx_w = self._large_scale_gain * interf_gain_w
+        else:
+            # Single-user / isolated link SVD top right-singular precoder & MRC combining
+            if self._n_tx > 1:
+                # Estimate dominant eigenmode beamformer v_tx from H_eff_est (no future/oracle leakage)
+                gram_est = np.einsum("bnk,bnl->bkl", np.conj(h_eff_est), h_eff_est)  # (B, Nt, Nt)
+                v = h_eff_est[:, 0, :].conj()  # (B, Nt)
+                v_norm = np.linalg.norm(v, axis=-1, keepdims=True)
+                v = np.where(v_norm > 1e-9, v / np.maximum(v_norm, 1e-9), 1.0 / math.sqrt(self._n_tx))
+                for _ in range(3):
+                    v = np.einsum("bkl,bl->bk", gram_est, v)
+                    vn = np.linalg.norm(v, axis=-1, keepdims=True)
+                    v = np.where(vn > 1e-9, v / np.maximum(vn, 1e-9), 1.0 / math.sqrt(self._n_tx))
+                bf_vec = np.einsum("bnk,bk->bn", h_eff_true, v)  # (B, Nr)
+                eff_channel_gain = np.sum(np.abs(bf_vec) ** 2, axis=-1)
+            else:
+                eff_channel_gain = np.sum(np.abs(h_eff_true[:, :, 0]) ** 2, axis=-1)
+
+            raw_rx_w = (self.tx_w * act_power_mult * user_pow_weights) * self._large_scale_gain * eff_channel_gain
         if "isac_jsac_channel" in self._blocks:
             comm_frac = 0.6
             rx_w = raw_rx_w * comm_frac
@@ -668,7 +723,7 @@ class ComposedWirelessEnv:
             h_jam = np.abs(self._draw_complex_cn((self.batch_size,)).reshape(-1)) ** 2
             jam_w = np.median(rx_w) * 0.25 * h_jam
 
-        eff_snr_post = rx_w / np.maximum(self.noise_w + active_ris_noise_w + jam_w, 1e-30)
+        eff_snr_post = rx_w / np.maximum(self.noise_w + active_ris_noise_w + jam_w + mui_rx_w, 1e-30)
 
         # Achievable Rate: Shannon or Polyanskiy FBL dispersion if HRLLC enabled (strictly <= Shannon)
         shannon_se = np.log2(1.0 + eff_snr_post)
@@ -678,6 +733,11 @@ class ComposedWirelessEnv:
             se = np.clip(shannon_se - np.sqrt(np.maximum(v_disp, 0.0) / n_blk) * qfuncinv(1e-5), 0.0, shannon_se)
         else:
             se = shannon_se
+
+        se_sum = float(np.sum(se))
+        se_sq_sum = float(np.sum(se ** 2))
+        jain_fair = (se_sum ** 2) / max(float(self.batch_size) * se_sq_sum, 1e-12)
+        mean_mui_db = float(np.mean(linear_to_db(np.maximum(mui_rx_w, 1e-30)))) if mu_mimo_active else None
 
         # Layer 4: Packet arrivals & queue draining
         if packet_bits is not None:
@@ -721,6 +781,11 @@ class ComposedWirelessEnv:
                 "power_scale": act_power_mult,
                 "action_applied": act_label,
                 "action_power_cost": act_power_cost,
+                "mu_mimo_interference_enabled": mu_mimo_active,
+                "spatial_consistency_enabled": self.enable_spatial_consistency,
+                "mean_inter_user_interference_db": mean_mui_db,
+                "mu_mimo_sum_rate_bps_hz": se_sum if mu_mimo_active else None,
+                "jain_fairness": jain_fair,
             },
         )
         self._history.append(out)
@@ -789,15 +854,22 @@ class ComposedWirelessEnv:
             standard_ids_used=list(self.spec.standard_ids),
         )
 
-    def as_channel_module(self, *, snr_db: float = 15.0, stateless: bool = True) -> ChannelModuleAdapter:
+    def as_channel_module(
+        self,
+        *,
+        snr_db: float = 15.0,
+        stateless: bool = True,
+        rf_impairments: Any = None,
+    ) -> ChannelModuleAdapter:
         """Expose composed complex64 small-scale channel into wannado-adv / Semantic AI training.
 
         Defaults to ``stateless=True`` so arbitrary training batch sizes (e.g. 64/128/256)
         work without mutating MAC queues or crashing on fixed ``self.batch_size``.
         """
+        rf_mod = self.rf_impairments if rf_impairments is None else rf_impairments
         if stateless:
-            return ChannelModuleAdapter(self.sample_channel_tensor, snr_db=snr_db, add_noise=True)
-        return ChannelModuleAdapter(lambda b: self.step().h_small[:b], snr_db=snr_db, add_noise=True)
+            return ChannelModuleAdapter(self.sample_channel_tensor, snr_db=snr_db, add_noise=True, rf_impairments=rf_mod)
+        return ChannelModuleAdapter(lambda b: self.step().h_small[:b], snr_db=snr_db, add_noise=True, rf_impairments=rf_mod)
 
     def as_gym_env(
         self,

@@ -13,11 +13,11 @@ import torch
 
 from wannado.wce.core.utils import resolve_device, set_global_seed
 
-ModulationOrder = Literal["QPSK", "16QAM", "64QAM"]
+ModulationOrder = Literal["QPSK", "16QAM", "64QAM", "256QAM"]
 EqualizerType = Literal["mmse", "zf", "mrc"]
 EstimatorType = Literal["genie", "ls", "lmmse"]
 
-_MOD_BITS: dict[str, int] = {"QPSK": 2, "16QAM": 4, "64QAM": 6}
+_MOD_BITS: dict[str, int] = {"QPSK": 2, "16QAM": 4, "64QAM": 6, "256QAM": 8}
 
 
 def _gray_pam_levels(bits_per_axis: int) -> tuple[np.ndarray, np.ndarray]:
@@ -193,6 +193,7 @@ class LinkLevelPHYConfig:
     pilot_spacing: int = 4
     num_blocks: int = 48
     cp_length: int | None = None
+    rf_impairments: Any = None
     seed: int = 42
     device: str = "auto"
 
@@ -428,6 +429,14 @@ def evaluate_link_level_phy(
                 y_td_chunks.append(y_fd[:, :, data_t[:n_here]].permute(0, 2, 1))
                 prev_td = x_td
             y_clean = torch.cat(y_td_chunks, dim=1)
+
+    if cfg.rf_impairments is not None:
+        rf_fn = cfg.rf_impairments
+        if not callable(rf_fn):
+            from wannado.wce.rf.impairments import RFImpairmentChain
+
+            rf_fn = RFImpairmentChain(rf_fn)
+        y_clean = rf_fn(y_clean.transpose(1, 2)).transpose(1, 2)
 
     snr_lin = 10.0 ** (float(cfg.snr_db) / 10.0)
     # Unit-power baseline channel reference (per-RX noise variance = 1 / snr_lin so TX array gain boosts SNR physically)

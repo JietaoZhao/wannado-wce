@@ -26,12 +26,23 @@ class ChannelModuleAdapter(nn.Module):
         snr_db: float = 15.0,
         add_noise: bool = True,
         reference_tx_power: float | None = 1.0,
+        rf_impairments: Any = None,
     ) -> None:
         super().__init__()
         self.channel_sampler = channel_sampler
         self.snr_db = float(snr_db)
         self.add_noise = bool(add_noise)
         self.reference_tx_power = reference_tx_power
+        if rf_impairments is not None and not callable(rf_impairments):
+            from wannado.wce.rf.impairments import RFImpairmentChain, RFImpairmentConfig
+
+            if isinstance(rf_impairments, RFImpairmentConfig):
+                rf_impairments = RFImpairmentChain(rf_impairments)
+            else:
+                raise TypeError(
+                    "rf_impairments must be a callable nn.Module, RFImpairmentConfig, or None."
+                )
+        self.rf_impairments = rf_impairments
 
     def forward(self, x_tx: torch.Tensor, *, h: torch.Tensor | None = None) -> torch.Tensor:
         batch = x_tx.shape[0]
@@ -43,6 +54,9 @@ class ChannelModuleAdapter(nn.Module):
             y = h_eff.to(torch.complex64) * x_tx.to(torch.complex64)
         else:
             y = h_eff.to(torch.complex64).reshape(batch, -1)[:, : x_tx.shape[-1]] * x_tx.to(torch.complex64)
+
+        if self.rf_impairments is not None:
+            y = self.rf_impairments(y)
 
         if not self.add_noise:
             return y
